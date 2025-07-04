@@ -160,7 +160,7 @@ class InfoScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      "Versión: 1.36.0",
+                      "Versión: 1.1.0",
                       style: TextStyle(fontSize: 18, color: colorText),
                     ),
                     const SizedBox(height: 8),

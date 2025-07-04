@@ -10,7 +10,6 @@ import 'package:dropster/screens/info_screen.dart';
 import 'package:path_provider/path_provider.dart';
 import 'services/mqtt_hive.dart';
 import 'package:dropster/screens/dropster_home_screen.dart';
-import 'package:dropster/services/bluetooth_service.dart';
 
 void main() {
   runApp(const DropsterApp());

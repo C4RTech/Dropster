@@ -31,7 +31,6 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  flutter_blue_plus: ^1.4.0
   path_provider: ^2.1.0
   fl_chart: ^0.63.0
   cupertino_icons: ^1.0.8

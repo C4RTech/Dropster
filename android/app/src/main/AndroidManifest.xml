@@ -1,18 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <uses-permission android:name="android.permission.BLUETOOTH"/>
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>
-    <!-- Permiso para conexión (Android 12+) -->
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
-    <!-- Permiso para escaneo (Android 12+) -->
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN"/>
-    <!-- Permiso para anunciar (Android 13+) -->
-    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE"/>
-    <!-- Permisos de localización necesarios para escaneo BLE -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
-    <!-- Servicio en foreground (opcional, pero recomendado para BLE) -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <!-- Internet para MQTT -->
     <uses-permission android:name="android.permission.INTERNET"/>
 

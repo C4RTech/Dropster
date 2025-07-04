@@ -2,12 +2,11 @@
 
 ## Descripción
 
-Dropster es una aplicación móvil desarrollada en Flutter para el control y monitoreo de un sistema AWG (Atmospheric Water Generator). La aplicación permite recibir datos en tiempo real tanto por Bluetooth (BLE) como por MQTT, visualizar gráficas históricas, detectar anomalías y gestionar notificaciones.
+Dropster es una aplicación móvil desarrollada en Flutter para el control y monitoreo de un sistema AWG (Atmospheric Water Generator). La aplicación permite recibir datos en tiempo real tanto por MQTT, visualizar gráficas históricas, detectar anomalías y gestionar notificaciones.
 
 ## Características Principales
 
 ### 🔌 **Conectividad Dual**
-- **Bluetooth (BLE)**: Conexión directa con ESP32 para datos en tiempo real
 - **MQTT**: Comunicación por WiFi/internet con broker MQTT
 - Reconexión automática y gestión de estado de conexión
 
@@ -40,8 +39,7 @@ Dropster es una aplicación móvil desarrollada en Flutter para el control y mon
 ### 2. **Pantalla de Conectividad (ConnectivityScreen)**
 - **Ubicación**: `lib/screens/connectivity_screen.dart`
 - **Funcionalidad**:
-  - Gestión de conexiones MQTT y Bluetooth
-  - Escaneo automático de dispositivos BLE
+  - Gestión de conexiones MQTT
   - Estado de conexión en tiempo real
   - Configuración de almacenamiento de datos
 
@@ -95,21 +93,16 @@ Dropster es una aplicación móvil desarrollada en Flutter para el control y mon
 
 ### 🔧 **Servicios Principales**
 
-1. **BluetoothService** (`lib/services/bluetooth_service.dart`)
-   - Gestión de conexiones BLE con ESP32
-   - Reconexión automática
-   - Manejo de permisos y estados
-
-2. **MqttHiveService** (`lib/services/mqtt_hive.dart`)
+1. **MqttHiveService** (`lib/services/mqtt_hive.dart`)
    - Integración MQTT con almacenamiento local
    - Parsing de datos CSV
    - Gestión de streams de datos
 
-3. **SingletonMqttService** (`lib/services/singleton_mqtt_service.dart`)
+2. **SingletonMqttService** (`lib/services/singleton_mqtt_service.dart`)
    - Servicio global para datos en tiempo real
    - Notificaciones de cambios de estado
 
-4. **MqttService** (`lib/services/mqtt_service.dart`)
+3. **MqttService** (`lib/services/mqtt_service.dart`)
    - Cliente MQTT básico
    - Conexión y suscripción a tópicos
 
@@ -126,7 +119,6 @@ Dropster es una aplicación móvil desarrollada en Flutter para el control y mon
 
 ```yaml
 dependencies:
-  flutter_blue_plus: ^1.4.0      # Bluetooth BLE
   mqtt_client: ^10.0.0           # Cliente MQTT
   hive_flutter: ^1.1.0           # Almacenamiento local
   fl_chart: ^0.63.0              # Gráficas
@@ -144,8 +136,6 @@ dependencies:
    ```
 
 2. **Configurar permisos** (Android):
-   - Bluetooth
-   - Ubicación (requerido para BLE)
    - Internet (para MQTT)
 
 3. **Configurar MQTT**:
@@ -159,7 +149,7 @@ dependencies:
 
 1. **Conectar dispositivo**:
    - Ir a "Conectividad"
-   - Seleccionar MQTT o Bluetooth
+   - Seleccionar Conectar MQTT 
    - Configurar parámetros de conexión
 
 2. **Configurar valores nominales**:
@@ -219,8 +209,6 @@ lib/
 │   ├── info_screen.dart
 │   └── dropster_home_screen.dart
 ├── services/                 # Servicios y lógica de negocio
-│   ├── bluetooth_service.dart
-│   ├── mqtt_service.dart
 │   ├── mqtt_hive.dart
 │   └── singleton_mqtt_service.dart
 ├── widgets/                  # Widgets personalizados
@@ -236,7 +224,6 @@ lib/
 - [ ] Dashboard personalizable
 - [ ] Integración con APIs externas
 - [ ] Modo offline mejorado
-- [ ] Tests unitarios y de integración
 
 ## Autor
 
@@ -246,4 +233,4 @@ lib/
 
 ## Licencia
 
-Este proyecto es parte de un trabajo de grado para optar por el título de Ingeniería Electrónica.
+Este proyecto es parte de un trabajo de grado para optar por el título de Ingeniería Electrónica. En la Universidad Nacional Experimental Politecnica "Antonio Jose de Sucre" UNEXPO

@@ -108,21 +108,6 @@ class MqttHiveService {
     };
   }
 
-  /// Maneja datos recibidos por BLE, los guarda y actualiza el notifier en tiempo real.
-  /// Convierte los bytes a string, los parsea, guarda en Hive y actualiza la UI.
-  void onBluetoothDataReceived(List<int> value, {String source = "BLE"}) {
-    final str = String.fromCharCodes(value);
-    final data = parseCsvLine(str, source: source);
-    if (data.isNotEmpty && isSavingEnabled() && dataBox != null) {
-      dataBox!.add(data);
-    }
-    // Notifica a la app en TIEMPO REAL (MERGE en vez de REEMPLAZAR)
-    SingletonMqttService().notifier.value = {
-      ...SingletonMqttService().notifier.value,
-      ...data
-    };
-  }
-
   /// Maneja datos recibidos por MQTT, los guarda y actualiza el notifier en tiempo real.
   void onMqttDataReceived(String value) {
     final data = parseCsvLine(value, source: "MQTT");
@@ -149,7 +134,4 @@ class MqttHiveService {
       }
     }
   }
-
-  /// Desconecta Bluetooth (implementación vacía para compatibilidad)
-  void disconnectBluetooth() {}
 }
