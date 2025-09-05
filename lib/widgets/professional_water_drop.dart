@@ -38,7 +38,7 @@ class _ProfessionalWaterDropState extends State<ProfessionalWaterDrop>
       duration: widget.animationDuration,
       vsync: this,
     );
-    
+
     _scaleAnimation = Tween<double>(
       begin: 0.8,
       end: 1.0,
@@ -46,7 +46,7 @@ class _ProfessionalWaterDropState extends State<ProfessionalWaterDrop>
       parent: _controller,
       curve: Curves.elasticOut,
     ));
-    
+
     _glowAnimation = Tween<double>(
       begin: 0.0,
       end: 1.0,
@@ -54,7 +54,7 @@ class _ProfessionalWaterDropState extends State<ProfessionalWaterDrop>
       parent: _controller,
       curve: Curves.easeInOut,
     ));
-    
+
     _liquidAnimation = Tween<double>(
       begin: 0.0,
       end: widget.value,
@@ -62,7 +62,7 @@ class _ProfessionalWaterDropState extends State<ProfessionalWaterDrop>
       parent: _controller,
       curve: Curves.easeInOut,
     ));
-    
+
     _controller.forward();
   }
 
@@ -92,101 +92,206 @@ class _ProfessionalWaterDropState extends State<ProfessionalWaterDrop>
     final theme = Theme.of(context);
     final primaryColor = widget.primaryColor ?? theme.colorScheme.secondary;
     final secondaryColor = widget.secondaryColor ?? theme.colorScheme.primary;
-    
+
     return GestureDetector(
       onTap: widget.onTap,
       child: AnimatedBuilder(
         animation: _controller,
         builder: (context, child) {
-          return Container(
-            width: widget.size,
-            height: widget.size * 1.3,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                // Sombra de fondo
-                Positioned(
-                  bottom: 0,
-                  child: Container(
-                    width: widget.size * 0.7,
-                    height: widget.size * 0.15,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(widget.size * 0.075),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.2),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
+          return Transform.scale(
+            scale: _scaleAnimation.value,
+            child: Container(
+              width: widget.size,
+              height: widget.size * 1.3,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Sombra de fondo mejorada
+                  Positioned(
+                    bottom: 0,
+                    child: Container(
+                      width: widget.size * 0.8,
+                      height: widget.size * 0.12,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(widget.size * 0.06),
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black.withOpacity(0.1),
+                            Colors.black.withOpacity(0.3),
+                          ],
                         ),
-                      ],
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.25),
+                            blurRadius: 15,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                
-                // Gota SVG con efectos
-                Container(
-                  width: widget.size,
-                  height: widget.size * 1.3,
-                  child: Stack(
-                    children: [
-                      // Gota de fondo (contorno)
-                      SvgPicture.asset(
-                        'lib/assets/images/water_drop_eco.svg',
-                        width: widget.size,
-                        height: widget.size * 1.3,
-                        colorFilter: ColorFilter.mode(
-                          Colors.grey.withOpacity(0.3),
-                          BlendMode.srcATop,
+
+                  // Gota principal con múltiples capas
+                  Container(
+                    width: widget.size,
+                    height: widget.size * 1.3,
+                    child: Stack(
+                      children: [
+                        // Capa de fondo con gradiente sutil
+                        Container(
+                          width: widget.size,
+                          height: widget.size * 1.3,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: RadialGradient(
+                              center: Alignment.topCenter,
+                              radius: 0.8,
+                              colors: [
+                                Colors.white.withOpacity(0.1),
+                                Colors.transparent,
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
-                      
-                      // Indicador líquido personalizado
-                      ClipPath(
-                        clipper: _WaterDropClipper(),
-                        child: AnimatedBuilder(
-                          animation: _liquidAnimation,
+
+                        // Líquido con gradiente mejorado
+                        ClipPath(
+                          clipper: _WaterDropClipper(),
+                          child: AnimatedBuilder(
+                            animation: _liquidAnimation,
+                            builder: (context, child) {
+                              return CustomPaint(
+                                size: Size(widget.size, widget.size * 1.3),
+                                painter: _LiquidPainter(
+                                  fillLevel: _liquidAnimation.value,
+                                  primaryColor: primaryColor,
+                                  secondaryColor: secondaryColor,
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+
+                        // Gota SVG principal con efectos mejorados
+                        AnimatedBuilder(
+                          animation: _glowAnimation,
                           builder: (context, child) {
-                            return CustomPaint(
-                              size: Size(widget.size, widget.size * 1.3),
-                              painter: _LiquidPainter(
-                                fillLevel: _liquidAnimation.value,
-                                color: primaryColor.withOpacity(0.8),
+                            return Container(
+                              width: widget.size,
+                              height: widget.size * 1.3,
+                              decoration: BoxDecoration(
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: primaryColor.withOpacity(
+                                        0.4 * _glowAnimation.value),
+                                    blurRadius: 25,
+                                    spreadRadius: 8,
+                                  ),
+                                  BoxShadow(
+                                    color: secondaryColor.withOpacity(
+                                        0.2 * _glowAnimation.value),
+                                    blurRadius: 40,
+                                    spreadRadius: 2,
+                                  ),
+                                ],
+                              ),
+                              child: SvgPicture.asset(
+                                'lib/assets/images/water_drop.svg',
+                                width: widget.size,
+                                height: widget.size * 1.3,
+                                colorFilter: ColorFilter.mode(
+                                  Colors.white.withOpacity(0.9),
+                                  BlendMode.srcATop,
+                                ),
                               ),
                             );
                           },
                         ),
-                      ),
-                      
-                      // Gota SVG principal con resplandor
-                      AnimatedBuilder(
-                        animation: _glowAnimation,
-                        builder: (context, child) {
-                          return Container(
-                            width: widget.size,
-                            height: widget.size * 1.3,
+
+                        // Efecto de brillo superior
+                        Positioned(
+                          top: widget.size * 0.15,
+                          left: widget.size * 0.35,
+                          child: Container(
+                            width: widget.size * 0.3,
+                            height: widget.size * 0.2,
                             decoration: BoxDecoration(
-                              boxShadow: [
-                                BoxShadow(
-                                  color: primaryColor.withOpacity(0.3 * _glowAnimation.value),
-                                  blurRadius: 20,
-                                  spreadRadius: 5,
+                              shape: BoxShape.circle,
+                              gradient: RadialGradient(
+                                colors: [
+                                  Colors.white.withOpacity(0.6),
+                                  Colors.white.withOpacity(0.2),
+                                  Colors.transparent,
+                                ],
+                                stops: [0.0, 0.5, 1.0],
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        // Efecto de reflexión lateral
+                        Positioned(
+                          top: widget.size * 0.4,
+                          right: widget.size * 0.15,
+                          child: Transform.rotate(
+                            angle: 0.3,
+                            child: Container(
+                              width: widget.size * 0.15,
+                              height: widget.size * 0.4,
+                              decoration: BoxDecoration(
+                                borderRadius:
+                                    BorderRadius.circular(widget.size * 0.075),
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Colors.white.withOpacity(0.4),
+                                    Colors.white.withOpacity(0.1),
+                                    Colors.transparent,
+                                  ],
                                 ),
-                              ],
+                              ),
                             ),
-                            child: SvgPicture.asset(
-                              'lib/assets/images/water_drop_eco.svg',
-                              width: widget.size,
-                              height: widget.size * 1.3,
-                            ),
-                          );
-                        },
-                      ),
-                      
-                      // Sin porcentaje dentro de la gota
-                    ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+
+                  // Indicador de nivel (opcional - se puede quitar si no se quiere)
+                  if (widget.value > 0)
+                    Positioned(
+                      bottom: widget.size * 0.1,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.9),
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.1),
+                              blurRadius: 8,
+                              offset: Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Text(
+                          '${(widget.value * 100).toInt()}%',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: secondaryColor,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
           );
         },
@@ -201,27 +306,51 @@ class _WaterDropClipper extends CustomClipper<Path> {
     final path = Path();
     final width = size.width;
     final height = size.height;
-    
-    // Forma de gota: círculo inferior y triángulo superior
-    path.moveTo(width * 0.5, height * 0.1); // Punta de la gota
+
+    // Forma de gota más elegante y natural
+    path.moveTo(width * 0.5, height * 0.08); // Punta superior más afilada
+
+    // Curva superior izquierda
     path.quadraticBezierTo(
-      width * 0.15, height * 0.4,
-      width * 0.15, height * 0.7,
+      width * 0.2,
+      height * 0.25,
+      width * 0.15,
+      height * 0.5,
     );
+
+    // Parte inferior izquierda
     path.quadraticBezierTo(
-      width * 0.15, height * 0.9,
-      width * 0.5, height * 0.95,
+      width * 0.12,
+      height * 0.75,
+      width * 0.25,
+      height * 0.92,
     );
+
+    // Parte inferior central (base de la gota)
     path.quadraticBezierTo(
-      width * 0.85, height * 0.9,
-      width * 0.85, height * 0.7,
+      width * 0.5,
+      height * 0.98,
+      width * 0.75,
+      height * 0.92,
     );
+
+    // Parte inferior derecha
     path.quadraticBezierTo(
-      width * 0.85, height * 0.4,
-      width * 0.5, height * 0.1,
+      width * 0.88,
+      height * 0.75,
+      width * 0.85,
+      height * 0.5,
+    );
+
+    // Curva superior derecha
+    path.quadraticBezierTo(
+      width * 0.8,
+      height * 0.25,
+      width * 0.5,
+      height * 0.08,
     );
     path.close();
-    
+
     return path;
   }
 
@@ -231,11 +360,13 @@ class _WaterDropClipper extends CustomClipper<Path> {
 
 class _LiquidPainter extends CustomPainter {
   final double fillLevel;
-  final Color color;
+  final Color primaryColor;
+  final Color secondaryColor;
 
   _LiquidPainter({
     required this.fillLevel,
-    required this.color,
+    required this.primaryColor,
+    required this.secondaryColor,
   });
 
   @override
@@ -244,16 +375,16 @@ class _LiquidPainter extends CustomPainter {
     final height = size.height;
     final liquidHeight = height * (1 - fillLevel);
 
-    // Gradiente vertical para el líquido
+    // Gradiente vertical para el líquido usando colores dinámicos
     final gradient = LinearGradient(
       begin: Alignment.topCenter,
       end: Alignment.bottomCenter,
       colors: [
-        Color(0xFF00CFC8), // Turquesa
-        Color(0xFF00B4D8), // Azul claro
-        Color(0xFF155263), // Azul profundo
+        primaryColor.withOpacity(0.9), // Color primario con opacidad
+        primaryColor.withOpacity(0.7), // Color primario más claro
+        secondaryColor.withOpacity(0.8), // Color secundario
       ],
-      stops: [0.0, 0.6, 1.0],
+      stops: [0.0, 0.5, 1.0],
     );
     final rect = Rect.fromLTWH(0, liquidHeight, width, height - liquidHeight);
     final paint = Paint()
@@ -363,11 +494,12 @@ class _WavePainter extends CustomPainter {
     final height = size.height;
 
     path.moveTo(0, height * 0.5);
-    
+
     for (double x = 0; x <= width; x += 1) {
-      final y = height * 0.5 + 
-                height * 0.2 * 
-                math.sin((x / width * 4 * math.pi) + (animation * 2 * math.pi));
+      final y = height * 0.5 +
+          height *
+              0.2 *
+              math.sin((x / width * 4 * math.pi) + (animation * 2 * math.pi));
       path.lineTo(x, y);
     }
 
@@ -376,4 +508,4 @@ class _WavePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
-} 
+}

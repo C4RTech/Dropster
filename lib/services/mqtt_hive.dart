@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'singleton_mqtt_service.dart';
 
@@ -5,8 +6,9 @@ import 'singleton_mqtt_service.dart';
 /// Permite guardar, recuperar y notificar datos energéticos en la app.
 /// Incluye utilidades para parsear datos, habilitar/deshabilitar guardado y manejar streams históricos.
 class MqttHiveService {
-  static Box<Map>? dataBox;      // Box de Hive para datos energéticos históricos
-  static Box? settingsBox;       // Box de Hive para configuraciones (nominales, flags)
+  static Box<Map>? dataBox; // Box de Hive para datos energéticos históricos
+  static Box?
+      settingsBox; // Box de Hive para configuraciones (nominales, flags)
   static bool isInitialized = false; // Indica si ya se inicializó
 
   /// Inicializa los boxes de Hive necesarios para el almacenamiento local.
@@ -51,9 +53,60 @@ class MqttHiveService {
     return last?.cast<String, dynamic>();
   }
 
+  /// Parsea datos JSON del AWG ESP32 a un mapa con claves semánticas.
+  /// El parámetro "source" indica el origen ("MQTT" o "BLE").
+  static Map<String, dynamic> parseAwgJson(String jsonString,
+      {String source = "MQTT"}) {
+    print('[MQTT DEBUG] Intentando parsear JSON: $jsonString');
+    try {
+      final Map<String, dynamic> jsonData =
+          Map<String, dynamic>.from(json.decode(jsonString));
+
+      print(
+          '[MQTT DEBUG] JSON parseado exitosamente, claves: ${jsonData.keys}');
+
+      // Mapear datos del AWG ESP32 (nombres abreviados) al formato esperado por la app
+      return {
+        // === DATOS PRINCIPALES ===
+        'temperaturaAmbiente': jsonData['t'] ?? 0.0, // t = temperatura ambiente
+        'presionAtmosferica': jsonData['p'] ?? 0.0, // p = presión atmosférica
+        'humedadRelativa':
+            jsonData['h'] ?? 0.0, // h = humedad relativa ambiente
+        'aguaAlmacenada': jsonData['w'] ?? 0.0, // w = agua almacenada
+
+        // === SENSORES ADICIONALES ===
+        'temperaturaEvaporador':
+            jsonData['te'] ?? 0.0, // te = temperatura evaporador
+        'humedadEvaporador': jsonData['he'] ?? 0.0, // he = humedad evaporador
+        'temperaturaCondensador':
+            jsonData['tc'] ?? 0.0, // tc = temperatura condensador
+        'humedadCondensador': jsonData['hc'] ?? 0.0, // hc = humedad condensador
+
+        // === CÁLCULOS DERIVADOS ===
+        'puntoRocio': jsonData['dp'] ?? 0.0, // dp = punto de rocío
+        'humedadAbsoluta': jsonData['ha'] ?? 0.0, // ha = humedad absoluta
+
+        // === DATOS ELÉCTRICOS ===
+        'voltaje': jsonData['v'] ?? 0.0, // v = voltaje
+        'corriente': jsonData['c'] ?? 0.0, // c = corriente
+        'potencia': jsonData['po'] ?? 0.0, // po = potencia
+        'energia': jsonData['e'] ?? 0.0, // e = energia
+
+        // === TIMESTAMP ===
+        'datetime': jsonData['ts']?.toString() ?? '', // ts = timestamp unix
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+        'source': source,
+      };
+    } catch (e) {
+      print('[MQTT DEBUG] Error parsing AWG JSON: $e');
+      return {};
+    }
+  }
+
   /// Parsea una línea CSV (formato del script Python) a un mapa con claves semánticas.
   /// El parámetro "source" indica el origen ("MQTT" o "BLE").
-  static Map<String, dynamic> parseCsvLine(String line, {String source = "MQTT"}) {
+  static Map<String, dynamic> parseCsvLine(String line,
+      {String source = "MQTT"}) {
     final parts = line.split(',');
     if (parts.length < 29) return {};
 
@@ -102,29 +155,89 @@ class MqttHiveService {
       'battery': getDouble(28),
       'source': source,
       'timestamp': DateTime.tryParse(
-        '${dateParts[0].padLeft(4, '0')}-${dateParts[1].padLeft(2, '0')}-${dateParts[2].padLeft(2, '0')} '
-        '${timeParts[0].padLeft(2, '0')}:${timeParts[1].padLeft(2, '0')}:${timeParts[2].padLeft(2, '0')}',
-      )?.millisecondsSinceEpoch ?? DateTime.now().millisecondsSinceEpoch,
+            '${dateParts[0].padLeft(4, '0')}-${dateParts[1].padLeft(2, '0')}-${dateParts[2].padLeft(2, '0')} '
+            '${timeParts[0].padLeft(2, '0')}:${timeParts[1].padLeft(2, '0')}:${timeParts[2].padLeft(2, '0')}',
+          )?.millisecondsSinceEpoch ??
+          DateTime.now().millisecondsSinceEpoch,
     };
   }
 
   /// Maneja datos recibidos por MQTT, los guarda y actualiza el notifier en tiempo real.
   void onMqttDataReceived(String value) {
-    final data = parseCsvLine(value, source: "MQTT");
+    print('[MQTT DEBUG] ===== NUEVOS DATOS MQTT RECIBIDOS =====');
+    print('[MQTT DEBUG] Payload crudo: $value');
+
+    Map<String, dynamic> data;
+
+    // Intentar parsear como JSON (AWG ESP32) primero
+    if (value.trim().startsWith('{')) {
+      print('[MQTT DEBUG] Detectado formato JSON, parseando...');
+      data = parseAwgJson(value, source: "MQTT");
+    } else {
+      // Fallback a CSV (formato legacy)
+      print('[MQTT DEBUG] Detectado formato CSV, parseando...');
+      data = parseCsvLine(value, source: "MQTT");
+    }
+
+    print('[MQTT DEBUG] Datos parseados exitosamente:');
+    print('[MQTT DEBUG] - Número de campos: ${data.length}');
+    print('[MQTT DEBUG] - Campos disponibles: ${data.keys.toList()}');
+
+    // Mostrar algunos valores clave para debugging
+    if (data.containsKey('temperaturaAmbiente') &&
+        data['temperaturaAmbiente'] != 0.0) {
+      print(
+          '[MQTT DEBUG] - Temperatura ambiente: ${data['temperaturaAmbiente']}°C');
+    }
+    if (data.containsKey('humedadRelativa') && data['humedadRelativa'] != 0.0) {
+      print('[MQTT DEBUG] - Humedad relativa: ${data['humedadRelativa']}%');
+    }
+    if (data.containsKey('aguaAlmacenada') && data['aguaAlmacenada'] != 0.0) {
+      print('[MQTT DEBUG] - Agua almacenada: ${data['aguaAlmacenada']}L');
+    }
+    if (data.containsKey('voltaje') && data['voltaje'] != 0.0) {
+      print('[MQTT DEBUG] - Voltaje: ${data['voltaje']}V');
+    }
+    if (data.containsKey('corriente') && data['corriente'] != 0.0) {
+      print('[MQTT DEBUG] - Corriente: ${data['corriente']}A');
+    }
+    if (data.containsKey('potencia') && data['potencia'] != 0.0) {
+      print('[MQTT DEBUG] - Potencia: ${data['potencia']}W');
+    }
+    if (data.containsKey('energia') && data['energia'] != 0.0) {
+      print('[MQTT DEBUG] - Energía: ${data['energia']}kWh');
+    }
+
     if (data.isNotEmpty && isSavingEnabled() && dataBox != null) {
       dataBox!.add(data);
+      print('[MQTT DEBUG] ✅ Datos guardados en Hive correctamente');
+    } else {
+      print('[MQTT DEBUG] ❌ No se guardaron datos:');
+      print('[MQTT DEBUG]   - Datos vacíos: ${data.isEmpty}');
+      print('[MQTT DEBUG]   - Guardado habilitado: ${isSavingEnabled()}');
+      print('[MQTT DEBUG]   - DataBox disponible: ${dataBox != null}');
     }
+
     // Notifica a la app en TIEMPO REAL (MERGE en vez de REEMPLAZAR)
+    print('[MQTT DEBUG] Actualizando notifier global...');
+    final oldNotifierValue = SingletonMqttService().notifier.value;
+    print('[MQTT DEBUG] - Campos anteriores: ${oldNotifierValue.length}');
+
     SingletonMqttService().notifier.value = {
       ...SingletonMqttService().notifier.value,
       ...data
     };
+
+    final newNotifierValue = SingletonMqttService().notifier.value;
+    print('[MQTT DEBUG] - Campos después: ${newNotifierValue.length}');
+    print('[MQTT DEBUG] ✅ Notifier actualizado correctamente');
+    print('[MQTT DEBUG] ===== FIN PROCESAMIENTO DATOS =====');
   }
 
   /// Stream para que otras partes de la app puedan escuchar nuevos datos históricos.
   Stream<Map<String, dynamic>> get dataStream async* {
     if (dataBox == null) return;
-    
+
     for (int i = 0; i < dataBox!.length; i++) {
       yield dataBox!.getAt(i)!.cast<String, dynamic>();
     }

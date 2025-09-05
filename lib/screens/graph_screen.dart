@@ -21,74 +21,57 @@ class _GraphScreenState extends State<GraphScreen> {
   final String dataBoxName = 'energyData';
   int realTimeSampleCount = 20;
   final String settingsBoxName = 'settings';
-  final String sampleCountKey = 'graphRealTimeSampleCount';
+  final String sampleCountKey = 'graphSampleCount';
 
   late final ValueNotifier<Map<String, dynamic>> _globalNotifier;
 
   final List<_MultiGraphGroup> _multiGraphGroups = [
+    // === ENERGÍA Y AGUA (PRIORIDAD ALTA) ===
     _MultiGraphGroup(
-      title: "Corrientes",
-      keys: ["current_a", "current_b", "current_c"],
-      seriesTitles: ["Corriente A", "Corriente B", "Corriente C"],
-      colors: [Colors.blue, Colors.green, Colors.red],
+      title: "Energía Consumida",
+      keys: ["energia"],
+      seriesTitles: ["Energía Total"],
+      colors: [Colors.amber],
+      unit: "Wh",
+      icon: Icons.bolt,
     ),
     _MultiGraphGroup(
-      title: "Voltajes",
-      keys: ["voltage_a", "voltage_b", "voltage_c"],
-      seriesTitles: ["Voltaje A", "Voltaje B", "Voltaje C"],
-      colors: [Colors.blue, Colors.green, Colors.red],
+      title: "Agua Generada",
+      keys: ["aguaAlmacenada"],
+      seriesTitles: ["Volumen de Agua"],
+      colors: [Colors.blue],
+      unit: "L",
+      icon: Icons.water_drop,
     ),
+
+    // === PARÁMETROS AMBIENTALES ===
     _MultiGraphGroup(
-      title: "Potencia Real",
-      keys: ["realPower_a", "realPower_b", "realPower_c", "totalRealPower"],
-      seriesTitles: [
-        "Potencia Real A",
-        "Potencia Real B",
-        "Potencia Real C",
-        "Total Potencia Real"
+      title: "Temperaturas",
+      keys: [
+        "temperaturaAmbiente",
+        "temperaturaEvaporador",
+        "temperaturaCondensador"
       ],
-      colors: [Colors.blue, Colors.green, Colors.red, Colors.orange],
-    ),
-    _MultiGraphGroup(
-      title: "Potencia Aparente",
-      keys: ["apparentPower_a", "apparentPower_b", "apparentPower_c", "totalApparentPower"],
-      seriesTitles: [
-        "Pot. Aparente A",
-        "Pot. Aparente B",
-        "Pot. Aparente C",
-        "Total Pot. Aparente"
+      seriesTitles: ["Ambiente", "Evaporador", "Condensador"],
+      colors: [
+        Colors.orange.shade600,
+        Colors.red.shade600,
+        Colors.purple.shade600
       ],
-      colors: [Colors.blue, Colors.green, Colors.red, Colors.orange],
+      unit: "°C",
+      icon: Icons.thermostat,
     ),
     _MultiGraphGroup(
-      title: "Potencia Reactiva",
-      keys: ["reactivePower_a", "reactivePower_b", "reactivePower_c", "totalReactivePower"],
-      seriesTitles: [
-        "Pot. Reactiva A",
-        "Pot. Reactiva B",
-        "Pot. Reactiva C",
-        "Total Pot. Reactiva"
+      title: "Humedad",
+      keys: ["humedadRelativa", "humedadEvaporador", "humedadCondensador"],
+      seriesTitles: ["Ambiente", "Evaporador", "Condensador"],
+      colors: [
+        Colors.cyan.shade600,
+        Colors.teal.shade600,
+        Colors.indigo.shade600
       ],
-      colors: [Colors.blue, Colors.green, Colors.red, Colors.orange],
-    ),
-    // Separación de "Otros" en 3 gráficas individuales
-    _MultiGraphGroup(
-      title: "Factor de Potencia",
-      keys: ["powerFactor"],
-      seriesTitles: ["Factor de Potencia"],
-      colors: [Colors.purple],
-    ),
-    _MultiGraphGroup(
-      title: "Frecuencia",
-      keys: ["frequency"],
-      seriesTitles: ["Frecuencia"],
-      colors: [Colors.brown],
-    ),
-    _MultiGraphGroup(
-      title: "Temperatura",
-      keys: ["temperature"],
-      seriesTitles: ["Temperatura"],
-      colors: [Colors.orange],
+      unit: "%",
+      icon: Icons.water,
     ),
   ];
 
@@ -105,6 +88,7 @@ class _GraphScreenState extends State<GraphScreen> {
     _loadSampleCount();
     _loadInitialData();
     _initRealTimeListener();
+    _initSettingsListener();
     _showTableForGroup = List.generate(_multiGraphGroups.length, (_) => false);
   }
 
@@ -122,6 +106,7 @@ class _GraphScreenState extends State<GraphScreen> {
     setState(() {
       realTimeSampleCount = settingsBox.get(sampleCountKey, defaultValue: 20);
     });
+    print('[GRAPH] Muestras cargadas: $realTimeSampleCount');
   }
 
   Future<void> _saveSampleCount(int value) async {
@@ -133,19 +118,27 @@ class _GraphScreenState extends State<GraphScreen> {
   }
 
   Future<void> _loadInitialData() async {
-    setState(() { isLoading = true; });
+    setState(() {
+      isLoading = true;
+    });
     _allData = await _getDataFromHive(range: selectedRange);
-    setState(() { isLoading = false; });
+    setState(() {
+      isLoading = false;
+    });
   }
 
-  Future<List<Map<String, dynamic>>> _getDataFromHive({DateTimeRange? range}) async {
+  Future<List<Map<String, dynamic>>> _getDataFromHive(
+      {DateTimeRange? range}) async {
     Box<Map> box;
     if (Hive.isBoxOpen(dataBoxName)) {
       box = Hive.box<Map>(dataBoxName);
     } else {
       box = await Hive.openBox<Map>(dataBoxName);
     }
-    final all = box.values.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
+    final all = box.values
+        .whereType<Map>()
+        .map((m) => Map<String, dynamic>.from(m))
+        .toList();
     if (all.isEmpty) return [];
     all.sort((a, b) => _getTimestamp(a).compareTo(_getTimestamp(b)));
     if (range == null) {
@@ -284,10 +277,15 @@ class _GraphScreenState extends State<GraphScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text('¿Borrar datos?'),
-        content: Text('¿Estás seguro de que deseas eliminar todos los datos almacenados?'),
+        content: Text(
+            '¿Estás seguro de que deseas eliminar todos los datos almacenados?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: Text('Cancelar')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: Text('Borrar')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text('Cancelar')),
+          TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text('Borrar')),
         ],
       ),
     );
@@ -341,6 +339,34 @@ class _GraphScreenState extends State<GraphScreen> {
     _globalNotifier.addListener(_handleGlobalNotifierChange);
   }
 
+  void _initSettingsListener() {
+    if (!Hive.isBoxOpen(settingsBoxName)) {
+      Hive.openBox(settingsBoxName).then((_) {
+        final settingsBox = Hive.box(settingsBoxName);
+        settingsBox.watch(key: sampleCountKey).listen((event) {
+          if (mounted) {
+            setState(() {
+              realTimeSampleCount = event.value ?? 20;
+            });
+            print(
+                '[GRAPH] Muestras actualizadas desde configuración: $realTimeSampleCount');
+          }
+        });
+      });
+    } else {
+      final settingsBox = Hive.box(settingsBoxName);
+      settingsBox.watch(key: sampleCountKey).listen((event) {
+        if (mounted) {
+          setState(() {
+            realTimeSampleCount = event.value ?? 20;
+          });
+          print(
+              '[GRAPH] Muestras actualizadas desde configuración: $realTimeSampleCount');
+        }
+      });
+    }
+  }
+
   void _handleGlobalNotifierChange() {
     if (!isRealTime || !mounted) return;
     final data = _globalNotifier.value;
@@ -368,7 +394,8 @@ class _GraphScreenState extends State<GraphScreen> {
 
   Widget _buildTabulatedTable(_MultiGraphGroup group) {
     if (_allData.isEmpty) {
-      return Center(child: Text("Sin datos", style: TextStyle(color: Colors.white)));
+      return Center(
+          child: Text("Sin datos", style: TextStyle(color: Colors.white)));
     }
 
     final selectedIdxs = <int>[];
@@ -376,7 +403,9 @@ class _GraphScreenState extends State<GraphScreen> {
       if (group.selected![i]) selectedIdxs.add(i);
     }
     if (selectedIdxs.isEmpty) {
-      return Center(child: Text("Selecciona al menos una serie", style: TextStyle(color: Colors.white)));
+      return Center(
+          child: Text("Selecciona al menos una serie",
+              style: TextStyle(color: Colors.white)));
     }
 
     final List<DataRow> rows = [];
@@ -395,7 +424,10 @@ class _GraphScreenState extends State<GraphScreen> {
               final key = group.keys[idx];
               final value = entry[key];
               return DataCell(Text(
-                value != null ? value.toString() : "-",
+                value != null
+                    ? _formatValueWithUnit(
+                        (value as num).toDouble(), group.unit)
+                    : "-",
                 style: TextStyle(color: Colors.black87, fontSize: 12),
               ));
             }).toList(),
@@ -411,12 +443,20 @@ class _GraphScreenState extends State<GraphScreen> {
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: DataTable(
-          headingRowColor: MaterialStateProperty.resolveWith((_) => Colors.blue.shade50),
+          headingRowColor:
+              MaterialStateProperty.resolveWith((_) => Colors.blue.shade50),
           columns: [
-            DataColumn(label: Text("Timestamp", style: TextStyle(fontWeight: FontWeight.bold))),
+            DataColumn(
+                label: Text("Timestamp",
+                    style: TextStyle(fontWeight: FontWeight.bold))),
             ...selectedIdxs.map((idx) => DataColumn(
-              label: Text(group.seriesTitles[idx], style: TextStyle(fontWeight: FontWeight.bold)),
-            )),
+                  label: Text(
+                    group.unit.isNotEmpty
+                        ? "${group.seriesTitles[idx]} (${group.unit})"
+                        : group.seriesTitles[idx],
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                )),
           ],
           rows: rows,
         ),
@@ -424,7 +464,7 @@ class _GraphScreenState extends State<GraphScreen> {
     );
   }
 
-  Widget _buildMultiGraph(_MultiGraphGroup group) {
+  Widget _buildEnhancedGraph(_MultiGraphGroup group) {
     final groupIndex = _multiGraphGroups.indexOf(group);
     group.selected ??= List.filled(group.keys.length, true);
 
@@ -480,7 +520,8 @@ class _GraphScreenState extends State<GraphScreen> {
 
     // === NUEVO: calcular minY/maxY expandido con zoom ===
     double? minY, maxY;
-    final allYValues = seriesSpots.expand((lst) => lst.map((s) => s.y)).toList();
+    final allYValues =
+        seriesSpots.expand((lst) => lst.map((s) => s.y)).toList();
     if (allYValues.isNotEmpty) {
       final minVal = allYValues.reduce((a, b) => a < b ? a : b);
       final maxVal = allYValues.reduce((a, b) => a > b ? a : b);
@@ -507,16 +548,66 @@ class _GraphScreenState extends State<GraphScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(group.title,
-                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                textAlign: TextAlign.center),
+            // Título con icono mejorado
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primary
+                          .withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      group.icon,
+                      color: Theme.of(context).colorScheme.primary,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          group.title,
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                        ),
+                        if (group.unit.isNotEmpty)
+                          Text(
+                            'Unidad: ${group.unit}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[600],
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
             SizedBox(
               height: 210,
               child: !showChart
-                  ? Center(child: Text("No hay suficientes datos para mostrar la gráfica", style: TextStyle(color: Colors.white)))
+                  ? Center(
+                      child: Text(
+                          "No hay suficientes datos para mostrar la gráfica",
+                          style: TextStyle(color: Colors.white)))
                   : LineChart(
                       LineChartData(
-                        gridData: FlGridData(show: true, drawVerticalLine: true),
+                        gridData:
+                            FlGridData(show: true, drawVerticalLine: true),
                         titlesData: FlTitlesData(
                           leftTitles: AxisTitles(
                             sideTitles: SideTitles(
@@ -524,8 +615,11 @@ class _GraphScreenState extends State<GraphScreen> {
                               reservedSize: 30,
                               getTitlesWidget: (value, meta) {
                                 return Text(
-                                  value.toStringAsFixed(0),
-                                  style: TextStyle(color: Colors.white, fontSize: 10),
+                                  group.unit.isNotEmpty
+                                      ? _formatValueWithUnit(value, group.unit)
+                                      : value.toStringAsFixed(0),
+                                  style: TextStyle(
+                                      color: Colors.white, fontSize: 10),
                                 );
                               },
                             ),
@@ -538,19 +632,25 @@ class _GraphScreenState extends State<GraphScreen> {
                                   ? ((xTicks.last - xTicks.first) / 4)
                                   : 1,
                               getTitlesWidget: (value, meta) {
-                                final dt = DateTime.fromMillisecondsSinceEpoch(value.toInt());
+                                final dt = DateTime.fromMillisecondsSinceEpoch(
+                                    value.toInt());
                                 return Text(
                                   "${dt.hour}:${dt.minute}:${dt.second}",
-                                  style: TextStyle(color: Colors.white, fontSize: 10),
+                                  style: TextStyle(
+                                      color: Colors.white, fontSize: 10),
                                 );
                               },
                             ),
                           ),
-                          rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                          topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                          rightTitles: AxisTitles(
+                              sideTitles: SideTitles(showTitles: false)),
+                          topTitles: AxisTitles(
+                              sideTitles: SideTitles(showTitles: false)),
                         ),
                         borderData: FlBorderData(
-                            show: true, border: Border.all(color: Colors.black26, width: 0.5)),
+                            show: true,
+                            border:
+                                Border.all(color: Colors.black26, width: 0.5)),
                         lineBarsData: [
                           for (int i = 0; i < seriesSpots.length; i++)
                             if (seriesSpots[i].length >= 2)
@@ -590,7 +690,8 @@ class _GraphScreenState extends State<GraphScreen> {
                               shape: BoxShape.circle,
                             ),
                           ),
-                          Text(group.seriesTitles[i], style: TextStyle(color: Colors.white)),
+                          Text(group.seriesTitles[i],
+                              style: TextStyle(color: Colors.white)),
                         ],
                       ),
                       selected: group.selected![i],
@@ -666,15 +767,17 @@ class _GraphScreenState extends State<GraphScreen> {
               Slider(
                 value: realTimeSampleCount.toDouble(),
                 min: 5,
-                max: 20,
-                divisions: 15,
+                max: 100,
+                divisions: 19,
                 label: realTimeSampleCount.toString(),
                 activeColor: Color(0xFF1D347A),
                 onChanged: (value) {
+                  final newValue = value.round();
                   setState(() {
-                    realTimeSampleCount = value.round();
+                    realTimeSampleCount = newValue;
                   });
-                  _saveSampleCount(realTimeSampleCount);
+                  _saveSampleCount(newValue);
+                  print('[GRAPH] Muestras cambiadas a: $newValue');
                 },
               ),
             ],
@@ -719,68 +822,174 @@ class _GraphScreenState extends State<GraphScreen> {
     final colorPrimary = Theme.of(context).colorScheme.primary;
     final colorAccent = Theme.of(context).colorScheme.secondary;
     final colorText = Theme.of(context).colorScheme.onBackground;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Gráficas'),
+        title: const Text('Gráficas en Tiempo Real'),
         backgroundColor: colorPrimary,
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: Icon(isRealTime ? Icons.access_time : Icons.calendar_today),
+            onPressed: () {
+              setState(() {
+                isRealTime = !isRealTime;
+                if (isRealTime) {
+                  selectedRange = null;
+                  _loadInitialData();
+                }
+              });
+            },
+            tooltip: isRealTime
+                ? 'Cambiar a modo histórico'
+                : 'Cambiar a tiempo real',
+          ),
+          if (!isRealTime)
+            IconButton(
+              icon: const Icon(Icons.date_range),
+              onPressed: _pickDateTimeRange,
+              tooltip: 'Seleccionar rango de fechas',
+            ),
+          IconButton(
+            icon: const Icon(Icons.delete_forever),
+            onPressed: _confirmAndClearData,
+            tooltip: 'Borrar todos los datos',
+          ),
+        ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              colorPrimary.withOpacity(0.1),
+              Colors.white,
+            ],
+          ),
+        ),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Energía generada hoy', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: colorText)),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 220,
-              child: LineChart(
-                LineChartData(
-                  gridData: FlGridData(show: true, drawVerticalLine: false),
-                  titlesData: FlTitlesData(
-                    leftTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: true, reservedSize: 40),
-                    ),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 28,
-                        getTitlesWidget: (value, meta) {
-                          int hour = value.toInt();
-                          if (hour % 2 == 0 && hour >= 0 && hour <= 23) {
-                            return Text('$hour', style: TextStyle(fontSize: 12, color: colorText));
-                          }
-                          return const SizedBox.shrink();
-                        },
-                        interval: 1,
+            // Controles superiores
+            Container(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: isRealTime ? Colors.green : Colors.blue,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              isRealTime
+                                  ? Icons.access_time
+                                  : Icons.calendar_today,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              isRealTime ? 'TIEMPO REAL' : 'HISTÓRICO',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (selectedRange != null && !isRealTime)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'Rango: ${DateFormat('dd/MM/yyyy HH:mm').format(selectedRange!.start)} - ${DateFormat('dd/MM/yyyy HH:mm').format(selectedRange!.end)}',
+                        style: TextStyle(
+                          color: colorPrimary,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
-                    rightTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    topTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                  ),
-                  minX: 0,
-                  maxX: 23,
-                  minY: 0,
-                  maxY: 10,
-                  borderData: FlBorderData(show: true),
-                  lineBarsData: [
-                    LineChartBarData(
-                      spots: List.generate(24, (i) => FlSpot(i.toDouble(), 2 + 6 * (i / 23) + (i % 3 == 0 ? 1 : 0))),
-                      isCurved: true,
-                      color: colorAccent,
-                      barWidth: 4,
-                      dotData: FlDotData(show: false),
-                    ),
-                  ],
-                ),
+                ],
               ),
             ),
-            const SizedBox(height: 24),
-            Text('Simulación de gráfica de energía generada por hora.', style: TextStyle(color: colorText.withOpacity(0.7))),
+
+            // Controles de zoom y muestras
+            if (isRealTime) _buildSliderSamples(),
+            _buildSliderVerticalZoom(),
+
+            // Lista de gráficas
+            Expanded(
+              child: isLoading
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          CircularProgressIndicator(color: colorPrimary),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Cargando datos...',
+                            style: TextStyle(
+                              color: colorPrimary,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : _allData.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.show_chart,
+                                size: 64,
+                                color: Colors.grey[400],
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                _message.isNotEmpty
+                                    ? _message
+                                    : 'No hay datos disponibles',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  color: Colors.grey[600],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Los datos aparecerán aquí cuando el ESP32 esté conectado',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[500],
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          itemCount: _multiGraphGroups.length,
+                          itemBuilder: (context, index) {
+                            return _buildEnhancedGraph(
+                                _multiGraphGroups[index]);
+                          },
+                        ),
+            ),
           ],
         ),
       ),
@@ -794,6 +1003,29 @@ class _GraphScreenState extends State<GraphScreen> {
   void _showSampleCountDialog() {
     // Implementation of _showSampleCountDialog method
   }
+
+  // Función para formatear valores con unidades apropiadas
+  String _formatValueWithUnit(double value, String unit) {
+    switch (unit) {
+      case "Wh":
+      case "W":
+        return "${value.toStringAsFixed(1)} $unit";
+      case "A":
+      case "V":
+      case "Hz":
+        return "${value.toStringAsFixed(2)} $unit";
+      case "°C":
+        return "${value.toStringAsFixed(1)}$unit";
+      case "%":
+        return "${value.toStringAsFixed(1)}$unit";
+      case "L":
+        return "${value.toStringAsFixed(1)} $unit";
+      case "hPa":
+        return "${value.toStringAsFixed(0)} $unit";
+      default:
+        return value.toStringAsFixed(2);
+    }
+  }
 }
 
 class _MultiGraphGroup {
@@ -801,6 +1033,8 @@ class _MultiGraphGroup {
   final List<String> keys;
   final List<String> seriesTitles;
   final List<Color> colors;
+  final String unit;
+  final IconData icon;
   List<bool>? selected;
 
   _MultiGraphGroup({
@@ -808,6 +1042,8 @@ class _MultiGraphGroup {
     required this.keys,
     required this.seriesTitles,
     required this.colors,
+    this.unit = "",
+    this.icon = Icons.show_chart,
   }) {
     selected ??= List.filled(keys.length, true);
   }

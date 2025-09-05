@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:math';
 import 'package:flutter/material.dart';
+import '../services/singleton_mqtt_service.dart';
 
 class MonitorScreen extends StatefulWidget {
   const MonitorScreen({Key? key}) : super(key: key);
@@ -9,61 +9,78 @@ class MonitorScreen extends StatefulWidget {
   State<MonitorScreen> createState() => _MonitorScreenState();
 }
 
-class _MonitorScreenState extends State<MonitorScreen> with SingleTickerProviderStateMixin {
+class _MonitorScreenState extends State<MonitorScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  Timer? timer;
-  final Random random = Random();
 
-  // Variables simuladas
-  // Ambiente
-  double tempAmb = 27.5;
-  double humRelAmb = 68.0;
-  double humAbsAmb = 18.2;
-  double presionAmb = 1013.0;
-  // Eléctrico
-  double voltaje = 220.0;
-  double corriente = 4.2;
-  double potencia = 900.0;
-  double energia = 2.3;
-  // Agua
-  double nivelTanque = 0.65;
-  double tempEvap = 12.0;
-  double tempCond = 35.0;
-  double humRelEvap = 80.0;
-  double humRelCond = 60.0;
-  double puntoRocioEvap = 8.0;
+  // Acceso a datos MQTT reales
+  ValueNotifier<Map<String, dynamic>> get globalNotifier =>
+      SingletonMqttService().notifier;
+
+  // Valores por defecto cuando no hay datos
+  final Map<String, dynamic> _defaultValues = {
+    'temperaturaAmbiente': 0.0,
+    'presionAtmosferica': 0.0,
+    'humedadRelativa': 0.0,
+    'humedadAbsoluta': 0.0,
+    'puntoRocio': 0.0,
+    'aguaAlmacenada': 0.0,
+    'temperaturaEvaporador': 0.0,
+    'humedadEvaporador': 0.0,
+    'temperaturaCondensador': 0.0,
+    'humedadCondensador': 0.0,
+    'voltaje': 0.0,
+    'corriente': 0.0,
+    'potencia': 0.0,
+    'energia': 0.0,
+  };
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    timer = Timer.periodic(const Duration(seconds: 2), (_) => _simulateData());
+    // Escuchar cambios en los datos MQTT
+    globalNotifier.addListener(_onDataChanged);
   }
 
   @override
   void dispose() {
-    timer?.cancel();
+    globalNotifier.removeListener(_onDataChanged);
     _tabController.dispose();
     super.dispose();
   }
 
-  void _simulateData() {
-    setState(() {
-      tempAmb = (tempAmb + (random.nextDouble() - 0.5) * 0.3).clamp(15.0, 35.0);
-      humRelAmb = (humRelAmb + (random.nextDouble() - 0.5) * 2).clamp(30.0, 100.0);
-      humAbsAmb = (humAbsAmb + (random.nextDouble() - 0.5) * 0.5).clamp(5.0, 30.0);
-      presionAmb = (presionAmb + (random.nextDouble() - 0.5) * 1.5).clamp(980.0, 1050.0);
-      voltaje = (voltaje + (random.nextDouble() - 0.5) * 2).clamp(200.0, 240.0);
-      corriente = (corriente + (random.nextDouble() - 0.5) * 0.2).clamp(0.0, 10.0);
-      potencia = voltaje * corriente;
-      energia = (energia + (random.nextDouble() - 0.5) * 0.1).clamp(0.0, 20.0);
-      nivelTanque = (nivelTanque + (random.nextDouble() - 0.5) * 0.02).clamp(0.0, 1.0);
-      tempEvap = (tempEvap + (random.nextDouble() - 0.5) * 0.5).clamp(5.0, 20.0);
-      tempCond = (tempCond + (random.nextDouble() - 0.5) * 0.5).clamp(25.0, 45.0);
-      humRelEvap = (humRelEvap + (random.nextDouble() - 0.5) * 2).clamp(40.0, 100.0);
-      humRelCond = (humRelCond + (random.nextDouble() - 0.5) * 2).clamp(30.0, 90.0);
-      puntoRocioEvap = (puntoRocioEvap + (random.nextDouble() - 0.5) * 0.3).clamp(0.0, 15.0);
-    });
+  void _onDataChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  // Función helper para obtener valores seguros
+  double _getValue(String key) {
+    final data = globalNotifier.value;
+    if (data.containsKey(key) && data[key] != null) {
+      final value = data[key];
+      if (value is num) {
+        return value.toDouble();
+      } else if (value is String) {
+        return double.tryParse(value) ?? _defaultValues[key] ?? 0.0;
+      }
+    }
+    return _defaultValues[key] ?? 0.0;
+  }
+
+  // Función helper para formatear valores
+  String _formatValue(double value, String unit, {int decimals = 1}) {
+    // Si el valor es 0 y no hay datos en el notifier, mostrar "--"
+    if (value == 0.0 && globalNotifier.value.isEmpty) {
+      return '--';
+    }
+    // Si el valor es 0 pero hay datos en el notifier, mostrar el valor
+    if (value == 0.0 && globalNotifier.value.isNotEmpty) {
+      return '${value.toStringAsFixed(decimals)} $unit';
+    }
+    return '${value.toStringAsFixed(decimals)} $unit';
   }
 
   @override
@@ -83,28 +100,110 @@ class _MonitorScreenState extends State<MonitorScreen> with SingleTickerProvider
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Ambiente', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: labelColor)),
+            Text('Ambiente',
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: labelColor)),
             const SizedBox(height: 8),
-            _bigCard(icon: Icons.thermostat, label: 'Temperatura ambiente', value: '${tempAmb.toStringAsFixed(1)} °C', color: colorAccent, textColor: Colors.white),
-            _bigCard(icon: Icons.water, label: 'Humedad relativa ambiente', value: '${humRelAmb.toStringAsFixed(1)} %', color: colorAccent, textColor: Colors.white),
-            _bigCard(icon: Icons.grain, label: 'Humedad absoluta ambiente', value: '${humAbsAmb.toStringAsFixed(1)} g/m³', color: colorAccent, textColor: Colors.white),
-            _bigCard(icon: Icons.blur_on, label: 'Presión atmosférica', value: '${presionAmb.toStringAsFixed(1)} hPa', color: colorAccent, textColor: Colors.white),
+            _bigCard(
+                icon: Icons.thermostat,
+                label: 'Temperatura ambiente',
+                value: _formatValue(_getValue('temperaturaAmbiente'), '°C'),
+                color: colorAccent,
+                textColor: Colors.white),
+            _bigCard(
+                icon: Icons.water,
+                label: 'Humedad relativa ambiente',
+                value: _formatValue(_getValue('humedadRelativa'), '%'),
+                color: colorAccent,
+                textColor: Colors.white),
+            _bigCard(
+                icon: Icons.grain,
+                label: 'Humedad absoluta ambiente',
+                value: _formatValue(_getValue('humedadAbsoluta'), 'g/m³'),
+                color: colorAccent,
+                textColor: Colors.white),
+            _bigCard(
+                icon: Icons.blur_on,
+                label: 'Presión atmosférica',
+                value: _formatValue(_getValue('presionAtmosferica'), 'hPa'),
+                color: colorAccent,
+                textColor: Colors.white),
             const SizedBox(height: 16),
-            Text('Agua', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: labelColor)),
+            Text('Agua',
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: labelColor)),
             const SizedBox(height: 8),
-            _bigCard(icon: Icons.water_drop, label: 'Nivel del tanque', value: '${(nivelTanque * 100).toStringAsFixed(0)} %', color: colorAccent, textColor: Colors.white),
-            _bigCard(icon: Icons.thermostat, label: 'Temp. evaporador', value: '${tempEvap.toStringAsFixed(1)} °C', color: colorAccent, textColor: Colors.white),
-            _bigCard(icon: Icons.thermostat, label: 'Temp. condensador', value: '${tempCond.toStringAsFixed(1)} °C', color: colorAccent, textColor: Colors.white),
-            _bigCard(icon: Icons.water, label: 'Humedad relativa evaporador', value: '${humRelEvap.toStringAsFixed(1)} %', color: colorAccent, textColor: Colors.white),
-            _bigCard(icon: Icons.water, label: 'Humedad relativa condensador', value: '${humRelCond.toStringAsFixed(1)} %', color: colorAccent, textColor: Colors.white),
-            _bigCard(icon: Icons.thermostat, label: 'Punto de rocío evaporador', value: '${puntoRocioEvap.toStringAsFixed(1)} °C', color: colorAccent, textColor: Colors.white),
+            _bigCard(
+                icon: Icons.water_drop,
+                label: 'Agua almacenada',
+                value: _formatValue(_getValue('aguaAlmacenada'), 'L'),
+                color: colorAccent,
+                textColor: Colors.white),
+            _bigCard(
+                icon: Icons.thermostat,
+                label: 'Temp. evaporador',
+                value: _formatValue(_getValue('temperaturaEvaporador'), '°C'),
+                color: colorAccent,
+                textColor: Colors.white),
+            _bigCard(
+                icon: Icons.thermostat,
+                label: 'Temp. condensador',
+                value: _formatValue(_getValue('temperaturaCondensador'), '°C'),
+                color: colorAccent,
+                textColor: Colors.white),
+            _bigCard(
+                icon: Icons.water,
+                label: 'Humedad relativa evaporador',
+                value: _formatValue(_getValue('humedadEvaporador'), '%'),
+                color: colorAccent,
+                textColor: Colors.white),
+            _bigCard(
+                icon: Icons.water,
+                label: 'Humedad relativa condensador',
+                value: _formatValue(_getValue('humedadCondensador'), '%'),
+                color: colorAccent,
+                textColor: Colors.white),
+            _bigCard(
+                icon: Icons.thermostat,
+                label: 'Punto de rocío',
+                value: _formatValue(_getValue('puntoRocio'), '°C'),
+                color: colorAccent,
+                textColor: Colors.white),
             const SizedBox(height: 16),
-            Text('Eléctrico', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: labelColor)),
+            Text('Eléctrico',
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: labelColor)),
             const SizedBox(height: 8),
-            _bigCard(icon: Icons.bolt, label: 'Voltaje', value: '${voltaje.toStringAsFixed(1)} V', color: colorAccent, textColor: Colors.white),
-            _bigCard(icon: Icons.electric_bolt, label: 'Corriente', value: '${corriente.toStringAsFixed(2)} A', color: colorAccent, textColor: Colors.white),
-            _bigCard(icon: Icons.flash_on, label: 'Potencia', value: '${potencia.toStringAsFixed(1)} W', color: colorAccent, textColor: Colors.white),
-            _bigCard(icon: Icons.energy_savings_leaf, label: 'Energía consumida', value: '${energia.toStringAsFixed(2)} kWh', color: colorAccent, textColor: Colors.white),
+            _bigCard(
+                icon: Icons.bolt,
+                label: 'Voltaje',
+                value: _formatValue(_getValue('voltaje'), 'V'),
+                color: colorAccent,
+                textColor: Colors.white),
+            _bigCard(
+                icon: Icons.electric_bolt,
+                label: 'Corriente',
+                value: _formatValue(_getValue('corriente'), 'A', decimals: 2),
+                color: colorAccent,
+                textColor: Colors.white),
+            _bigCard(
+                icon: Icons.flash_on,
+                label: 'Potencia',
+                value: _formatValue(_getValue('potencia'), 'W'),
+                color: colorAccent,
+                textColor: Colors.white),
+            _bigCard(
+                icon: Icons.energy_savings_leaf,
+                label: 'Energía',
+                value: _formatValue(_getValue('energia'), 'kWh', decimals: 2),
+                color: colorAccent,
+                textColor: Colors.white),
           ],
         ),
       ),
@@ -156,4 +255,4 @@ class _MonitorScreenState extends State<MonitorScreen> with SingleTickerProvider
       ),
     );
   }
-} 
+}

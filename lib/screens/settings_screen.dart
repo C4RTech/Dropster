@@ -3,6 +3,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
 import '../services/mqtt_hive.dart';
 import '../services/daily_report_service.dart';
+import '../services/singleton_mqtt_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -24,13 +25,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool showNotifications = true;
   bool dailyReportEnabled = false;
   TimeOfDay dailyReportTime = const TimeOfDay(hour: 20, minute: 0);
-  int graphSampleCount = 20;
-  String mqttBroker = 'broker.emqx.io';
+  String mqttBroker = 'test.mosquitto.org';
   int mqttPort = 1883;
   String mqttTopic = 'dropster/data';
-  
+
   // Configuración del tanque
-  String tankShape = 'Cilíndrico';
   double tankCapacity = 1000.0; // litros
   final tankCapacityController = TextEditingController();
 
@@ -50,35 +49,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadSettings() async {
     await MqttHiveService.initHive();
-    
+
     if (!Hive.isBoxOpen('settings')) {
       await Hive.openBox('settings');
     }
     final settingsBox = Hive.box('settings');
-    
+
     setState(() {
       // Valores nominales
       nominalVoltage = settingsBox.get('nominalVoltage', defaultValue: 110.0);
       nominalCurrent = settingsBox.get('nominalCurrent', defaultValue: 10.0);
       voltageController.text = nominalVoltage.toStringAsFixed(1);
       currentController.text = nominalCurrent.toStringAsFixed(1);
-      
+
       // Configuraciones de la app
       isSavingEnabled = settingsBox.get('isSavingEnabled', defaultValue: true);
       autoConnect = settingsBox.get('autoConnect', defaultValue: true);
-      showNotifications = settingsBox.get('showNotifications', defaultValue: true);
-      graphSampleCount = settingsBox.get('graphSampleCount', defaultValue: 20);
-      mqttBroker = settingsBox.get('mqttBroker', defaultValue: 'broker.emqx.io');
+      showNotifications =
+          settingsBox.get('showNotifications', defaultValue: true);
+      mqttBroker =
+          settingsBox.get('mqttBroker', defaultValue: 'test.mosquitto.org');
       mqttPort = settingsBox.get('mqttPort', defaultValue: 1883);
       mqttTopic = settingsBox.get('mqttTopic', defaultValue: 'dropster/data');
-      
+
       // Configuración del tanque
-      tankShape = settingsBox.get('tankShape', defaultValue: 'Cilíndrico');
       tankCapacity = settingsBox.get('tankCapacity', defaultValue: 1000.0);
       tankCapacityController.text = tankCapacity.toStringAsFixed(0);
-      
+
       // Configuración de reportes diarios
-      dailyReportEnabled = settingsBox.get('dailyReportEnabled', defaultValue: false);
+      dailyReportEnabled =
+          settingsBox.get('dailyReportEnabled', defaultValue: false);
       final savedHour = settingsBox.get('dailyReportHour', defaultValue: 20);
       final savedMinute = settingsBox.get('dailyReportMinute', defaultValue: 0);
       dailyReportTime = TimeOfDay(hour: savedHour, minute: savedMinute);
@@ -94,31 +94,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await settingsBox.put('isSavingEnabled', isSavingEnabled);
     await settingsBox.put('autoConnect', autoConnect);
     await settingsBox.put('showNotifications', showNotifications);
-    await settingsBox.put('graphSampleCount', graphSampleCount);
     await settingsBox.put('mqttBroker', mqttBroker);
     await settingsBox.put('mqttPort', mqttPort);
     await settingsBox.put('mqttTopic', mqttTopic);
-    
+
     // Guardar configuración del tanque
-    await settingsBox.put('tankShape', tankShape);
     await settingsBox.put('tankCapacity', tankCapacity);
-    
+
     // Guardar configuración de reportes diarios
     await settingsBox.put('dailyReportEnabled', dailyReportEnabled);
     await settingsBox.put('dailyReportHour', dailyReportTime.hour);
     await settingsBox.put('dailyReportMinute', dailyReportTime.minute);
-    
+
     // Actualizar el servicio MQTT Hive
     MqttHiveService.toggleSaving(isSavingEnabled);
-    
+
     // Programar o cancelar reporte diario
-    await DailyReportService().scheduleDailyReport(dailyReportTime, dailyReportEnabled);
-    
+    await DailyReportService()
+        .scheduleDailyReport(dailyReportTime, dailyReportEnabled);
+
+    // 🔄 RECONECTAR MQTT CON NUEVA CONFIGURACIÓN
+    try {
+      print('[SETTINGS] Aplicando nueva configuración MQTT...');
+      await SingletonMqttService()
+          .mqttClientService
+          .reconnectWithNewConfig(SingletonMqttService().mqttService);
+      print('[SETTINGS] ✅ Configuración MQTT aplicada exitosamente');
+    } catch (e) {
+      print('[SETTINGS] ❌ Error aplicando configuración MQTT: $e');
+      // Mostrar error pero no bloquear el guardado
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Configuración guardada, pero error en MQTT: $e',
+                style: const TextStyle(color: Colors.white)),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    }
+
     // Mostrar SnackBar de éxito con el mismo estilo que los demás
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Configuración guardada', style: TextStyle(color: Color(0xFF155263))),
+          content: const Text('Configuración guardada',
+              style: TextStyle(color: Color(0xFF155263))),
           backgroundColor: Colors.white,
         ),
       );
@@ -131,7 +152,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final colorAccent = Theme.of(context).colorScheme.secondary;
     final colorText = Theme.of(context).colorScheme.onBackground;
     final labelColor = Colors.white;
-    
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Configuración'),
@@ -151,7 +172,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Sección de configuración de datos
-            _buildSectionHeader('Configuración de Datos', Icons.data_usage, labelColor),
+            _buildSectionHeader(
+                'Configuración de Datos', Icons.data_usage, labelColor),
             const SizedBox(height: 16),
             _buildDataSettingsCard(colorPrimary, colorAccent, colorText),
             const SizedBox(height: 24),
@@ -161,17 +183,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             _buildConnectivityCard(colorPrimary, colorAccent, colorText),
             const SizedBox(height: 24),
             // Sección de notificaciones
-            _buildSectionHeader('Notificaciones', Icons.notifications, labelColor),
+            _buildSectionHeader(
+                'Notificaciones', Icons.notifications, labelColor),
             const SizedBox(height: 16),
             _buildNotificationsCard(colorPrimary, colorAccent, colorText),
             const SizedBox(height: 24),
-            // Sección de gráficas
-            _buildSectionHeader('Gráficas', Icons.show_chart, labelColor),
-            const SizedBox(height: 16),
-            _buildGraphSettingsCard(colorPrimary, colorAccent, colorText),
-            const SizedBox(height: 24),
             // Sección de configuración del tanque
-            _buildSectionHeader('Configuración del Tanque', Icons.water_drop, labelColor),
+            _buildSectionHeader(
+                'Configuración del Tanque', Icons.water_drop, labelColor),
             const SizedBox(height: 16),
             _buildTankSettingsCard(colorPrimary, colorAccent, colorText),
             const SizedBox(height: 32),
@@ -214,7 +233,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildDataSettingsCard(Color colorPrimary, Color colorAccent, Color colorText) {
+  Widget _buildDataSettingsCard(
+      Color colorPrimary, Color colorAccent, Color colorText) {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       elevation: 2,
@@ -224,7 +244,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             SwitchListTile(
               title: const Text('Guardar datos automáticamente'),
-              subtitle: const Text('Almacena los datos recibidos en el dispositivo'),
+              subtitle:
+                  const Text('Almacena los datos recibidos en el dispositivo'),
               value: isSavingEnabled,
               onChanged: (value) {
                 setState(() {
@@ -237,7 +258,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ListTile(
               leading: Icon(Icons.delete_sweep, color: colorAccent),
               title: const Text('Borrar todos los datos'),
-              subtitle: const Text('Elimina todos los datos históricos almacenados'),
+              subtitle:
+                  const Text('Elimina todos los datos históricos almacenados'),
               onTap: _showClearDataDialog,
             ),
           ],
@@ -246,7 +268,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildConnectivityCard(Color colorPrimary, Color colorAccent, Color colorText) {
+  Widget _buildConnectivityCard(
+      Color colorPrimary, Color colorAccent, Color colorText) {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       elevation: 2,
@@ -291,7 +314,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onChanged: (value) {
                       mqttPort = int.tryParse(value) ?? 1883;
                     },
-                    controller: TextEditingController(text: mqttPort.toString()),
+                    controller:
+                        TextEditingController(text: mqttPort.toString()),
                   ),
                 ),
               ],
@@ -299,14 +323,59 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 16),
             TextField(
               decoration: const InputDecoration(
-                labelText: 'Tópico MQTT',
+                labelText: 'Tópico MQTT (Base)',
                 border: OutlineInputBorder(),
                 prefixIcon: Icon(Icons.topic),
+                helperText:
+                    'Base: dropster/ → Crea: dropster/data y dropster/control',
               ),
               onChanged: (value) {
                 mqttTopic = value;
               },
               controller: TextEditingController(text: mqttTopic),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: colorAccent.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: colorAccent.withOpacity(0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Tópicos utilizados:',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: colorText,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '📥 Datos: ${mqttTopic.replaceAll('/data', '')}/data',
+                    style: TextStyle(
+                        fontSize: 11, color: colorText.withOpacity(0.8)),
+                  ),
+                  Text(
+                    '📤 Control: ${mqttTopic.replaceAll('/data', '')}/control',
+                    style: TextStyle(
+                        fontSize: 11, color: colorText.withOpacity(0.8)),
+                  ),
+                  Text(
+                    '💓 Status: ${mqttTopic.replaceAll('/data', '')}/status',
+                    style: TextStyle(
+                        fontSize: 11, color: colorText.withOpacity(0.8)),
+                  ),
+                  Text(
+                    '❤️ Heartbeat: ${mqttTopic.replaceAll('/data', '')}/heartbeat',
+                    style: TextStyle(
+                        fontSize: 11, color: colorText.withOpacity(0.8)),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -314,7 +383,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildNotificationsCard(Color colorPrimary, Color colorAccent, Color colorText) {
+  Widget _buildNotificationsCard(
+      Color colorPrimary, Color colorAccent, Color colorText) {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       elevation: 2,
@@ -336,7 +406,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const Divider(),
             SwitchListTile(
               title: const Text('Reporte diario automático'),
-              subtitle: Text('Recibe resumen diario a las ${dailyReportTime.format(context)}'),
+              subtitle: Text(
+                  'Recibe resumen diario a las ${dailyReportTime.format(context)}'),
               value: dailyReportEnabled,
               onChanged: (value) {
                 setState(() {
@@ -373,7 +444,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ListTile(
               leading: Icon(Icons.notifications_off, color: colorAccent),
               title: const Text('Borrar todas las notificaciones'),
-              subtitle: const Text('Elimina todas las notificaciones almacenadas'),
+              subtitle:
+                  const Text('Elimina todas las notificaciones almacenadas'),
               onTap: _showClearNotificationsDialog,
             ),
           ],
@@ -382,7 +454,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildGraphSettingsCard(Color colorPrimary, Color colorAccent, Color colorText) {
+  Widget _buildTankSettingsCard(
+      Color colorPrimary, Color colorAccent, Color colorText) {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       elevation: 2,
@@ -390,42 +463,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            ListTile(
-              title: const Text('Muestras en tiempo real'),
-              subtitle: Text('$graphSampleCount muestras'),
-              trailing: const Icon(Icons.settings),
-              onTap: _showSampleCountDialog,
-            ),
-            const Divider(),
-            ListTile(
-              leading: Icon(Icons.info_outline, color: colorAccent),
-              title: const Text('Información de gráficas'),
-              subtitle: const Text('Configuración adicional de visualización'),
-              onTap: _showGraphInfoDialog,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTankSettingsCard(Color colorPrimary, Color colorAccent, Color colorText) {
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            // Forma del tanque
-            ListTile(
-              leading: Icon(Icons.shape_line, color: colorAccent),
-              title: const Text('Forma del tanque'),
-              subtitle: Text(tankShape),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: _showTankShapeDialog,
-            ),
-            const Divider(),
             // Capacidad del tanque
             ListTile(
               leading: Icon(Icons.straighten, color: colorAccent),
@@ -433,14 +470,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               subtitle: Text('${tankCapacity.toStringAsFixed(0)} litros'),
               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
               onTap: _showTankCapacityDialog,
-            ),
-            const Divider(),
-            // Información del tanque
-            ListTile(
-              leading: Icon(Icons.info_outline, color: colorAccent),
-              title: const Text('Información del tanque'),
-              subtitle: const Text('Detalles sobre la configuración del tanque'),
-              onTap: _showTankInfoDialog,
             ),
           ],
         ),
@@ -453,14 +482,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Borrar datos'),
-        content: const Text('¿Estás seguro de que quieres borrar todos los datos históricos? Esta acción no se puede deshacer.'),
+        content: const Text(
+            '¿Estás seguro de que quieres borrar todos los datos históricos? Esta acción no se puede deshacer.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             style: TextButton.styleFrom(
               foregroundColor: Colors.white,
             ),
-            child: const Text('Cancelar', style: TextStyle(color: Colors.white)),
+            child:
+                const Text('Cancelar', style: TextStyle(color: Colors.white)),
           ),
           Builder(
             builder: (dialogContext) {
@@ -471,13 +502,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   await MqttHiveService.clearAllData();
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: const Text('Datos borrados correctamente', style: TextStyle(color: Color(0xFF155263))),
+                      content: const Text('Datos borrados correctamente',
+                          style: TextStyle(color: Color(0xFF155263))),
                       backgroundColor: Colors.white,
                     ),
                   );
                 },
                 style: ElevatedButton.styleFrom(backgroundColor: colorPrimary),
-                child: const Text('Borrar', style: TextStyle(color: Colors.white)),
+                child:
+                    const Text('Borrar', style: TextStyle(color: Colors.white)),
               );
             },
           ),
@@ -491,14 +524,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Borrar notificaciones'),
-        content: const Text('¿Estás seguro de que quieres borrar todas las notificaciones? Esta acción no se puede deshacer.'),
+        content: const Text(
+            '¿Estás seguro de que quieres borrar todas las notificaciones? Esta acción no se puede deshacer.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             style: TextButton.styleFrom(
               foregroundColor: Colors.white,
             ),
-            child: const Text('Cancelar', style: TextStyle(color: Colors.white)),
+            child:
+                const Text('Cancelar', style: TextStyle(color: Colors.white)),
           ),
           Builder(
             builder: (dialogContext) {
@@ -510,131 +545,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   await box.clear();
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: const Text('Notificaciones borradas correctamente', style: TextStyle(color: Color(0xFF155263))),
+                      content: const Text(
+                          'Notificaciones borradas correctamente',
+                          style: TextStyle(color: Color(0xFF155263))),
                       backgroundColor: Colors.white,
                     ),
                   );
                 },
                 style: ElevatedButton.styleFrom(backgroundColor: colorPrimary),
-                child: const Text('Borrar', style: TextStyle(color: Colors.white)),
+                child:
+                    const Text('Borrar', style: TextStyle(color: Colors.white)),
               );
             },
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showSampleCountDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Muestras en tiempo real'),
-        content: StatefulBuilder(
-          builder: (context, setState) => Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('$graphSampleCount muestras'),
-              const SizedBox(height: 24),
-              Slider(
-                value: graphSampleCount.toDouble(),
-                min: 10,
-                max: 100,
-                divisions: 18,
-                label: graphSampleCount.toString(),
-                onChanged: (value) {
-                  setState(() {
-                    graphSampleCount = value.round();
-                  });
-                },
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Cancelar', style: TextStyle(color: Colors.white)),
-          ),
-          Builder(
-            builder: (dialogContext) {
-              final colorPrimary = Theme.of(dialogContext).colorScheme.primary;
-              return ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _saveSettings();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: const Text('Configuración guardada', style: TextStyle(color: Color(0xFF155263))),
-                      backgroundColor: Colors.white,
-                    ),
-                  );
-                },
-                style: ElevatedButton.styleFrom(backgroundColor: colorPrimary),
-                child: const Text('Guardar', style: TextStyle(color: Colors.white)),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showGraphInfoDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Información de gráficas'),
-        content: const Text(
-          'Las gráficas muestran los datos eléctricos del sistema Dropster en tiempo real y de forma histórica.\n\n'
-          'Puedes ajustar el número de muestras que se muestran en tiempo real y filtrar por rangos de fechas específicos.\n\n'
-          'Los datos se actualizan automáticamente cuando hay conexión activa con el dispositivo.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Cerrar', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showTankShapeDialog() {
-    final shapes = ['Cilíndrico', 'Rectangular', 'Esférico', 'Cónico'];
-    
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Forma del tanque'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: shapes.map((shape) => RadioListTile<String>(
-            title: Text(shape),
-            value: shape,
-            groupValue: tankShape,
-            onChanged: (value) {
-              setState(() {
-                tankShape = value!;
-              });
-              Navigator.pop(context);
-              _saveSettings();
-            },
-          )).toList(),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Cancelar', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -671,7 +593,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             style: TextButton.styleFrom(
               foregroundColor: Colors.white,
             ),
-            child: const Text('Cancelar', style: TextStyle(color: Colors.white)),
+            child:
+                const Text('Cancelar', style: TextStyle(color: Colors.white)),
           ),
           Builder(
             builder: (dialogContext) {
@@ -687,57 +610,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _saveSettings();
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
-                        content: const Text('Capacidad del tanque actualizada', style: TextStyle(color: Color(0xFF155263))),
+                        content: const Text('Capacidad del tanque actualizada',
+                            style: TextStyle(color: Color(0xFF155263))),
                         backgroundColor: Colors.white,
                       ),
                     );
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('Por favor ingresa un valor válido mayor a 0'),
+                        content:
+                            Text('Por favor ingresa un valor válido mayor a 0'),
                         backgroundColor: Colors.red,
                       ),
                     );
                   }
                 },
                 style: ElevatedButton.styleFrom(backgroundColor: colorPrimary),
-                child: const Text('Guardar', style: TextStyle(color: Colors.white)),
+                child: const Text('Guardar',
+                    style: TextStyle(color: Colors.white)),
               );
             },
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showTankInfoDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Información del tanque'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Configuración del tanque de agua:\n\n'
-              '• Forma del tanque: Define la geometría del tanque para cálculos precisos de volumen.\n\n'
-              '• Capacidad: Especifica la capacidad total en litros para determinar el porcentaje de llenado.\n\n'
-              'Esta información se utiliza para:\n'
-              '• Calcular el nivel de agua en porcentaje\n'
-              '• Mostrar datos precisos en la pantalla principal\n'
-              '• Generar alertas cuando el nivel es bajo',
-              style: TextStyle(fontSize: 14),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Cerrar', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -752,11 +644,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return Theme(
           data: Theme.of(context).copyWith(
             colorScheme: Theme.of(context).colorScheme.copyWith(
-              primary: Theme.of(context).colorScheme.primary,
-              onPrimary: Colors.white,
-              surface: Theme.of(context).dialogBackgroundColor,
-              onSurface: Colors.white,
-            ),
+                  primary: Theme.of(context).colorScheme.primary,
+                  onPrimary: Colors.white,
+                  surface: Theme.of(context).dialogBackgroundColor,
+                  onSurface: Colors.white,
+                ),
             textButtonTheme: TextButtonThemeData(
               style: TextButton.styleFrom(
                 foregroundColor: Colors.white,
@@ -767,7 +659,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       },
     );
-    
+
     if (picked != null && picked != dailyReportTime) {
       setState(() {
         dailyReportTime = picked;
@@ -775,7 +667,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _saveSettings();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Hora del reporte diario actualizada a ${picked.format(context)}', style: TextStyle(color: Color(0xFF155263))),
+          content: Text(
+              'Hora del reporte diario actualizada a ${picked.format(context)}',
+              style: TextStyle(color: Color(0xFF155263))),
           backgroundColor: Colors.white,
         ),
       );
@@ -784,7 +678,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showReportHistoryDialog() async {
     final reports = await DailyReportService().getReportHistory();
-    
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -800,11 +694,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   itemCount: reports.length,
                   itemBuilder: (context, index) {
                     final report = reports[index];
-                    final date = DateTime.fromMillisecondsSinceEpoch(report['date']);
+                    final date =
+                        DateTime.fromMillisecondsSinceEpoch(report['date']);
                     final energy = report['energy'] ?? 0.0;
                     final water = report['water'] ?? 0.0;
                     final efficiency = report['efficiency'] ?? 0.0;
-                    
+
                     return Card(
                       margin: const EdgeInsets.symmetric(vertical: 4),
                       child: ListTile(
@@ -817,7 +712,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           children: [
                             Text('⚡ Energía: ${energy.toStringAsFixed(2)} kWh'),
                             Text('💧 Agua: ${water.toStringAsFixed(2)} L'),
-                            Text('⚡ Eficiencia: ${efficiency.toStringAsFixed(3)} kWh/L'),
+                            Text(
+                                '⚡ Eficiencia: ${efficiency.toStringAsFixed(3)} kWh/L'),
                           ],
                         ),
                         trailing: Icon(
@@ -849,7 +745,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 );
               },
-              child: const Text('Borrar Historial', style: TextStyle(color: Colors.red)),
+              child: const Text('Borrar Historial',
+                  style: TextStyle(color: Colors.red)),
             ),
         ],
       ),
@@ -886,7 +783,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final dayData = allData.where((data) {
         final timestamp = data['timestamp'];
         if (timestamp == null) return false;
-        
+
         final dataTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
         return dataTime.isAfter(startOfDay) && dataTime.isBefore(endOfDay);
       }).toList();
@@ -906,7 +803,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: TextButton.styleFrom(
                   foregroundColor: Colors.white,
                 ),
-                child: const Text('Cerrar', style: TextStyle(color: Colors.white)),
+                child:
+                    const Text('Cerrar', style: TextStyle(color: Colors.white)),
               ),
             ],
           ),
@@ -924,9 +822,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           maxEnergy = energyToday;
         }
 
-        final waterGenerated = _parseDouble(data['waterGenerated']) ?? 
-                              _parseDouble(data['aguaGenerada']) ?? 
-                              0.0;
+        final waterGenerated = _parseDouble(data['waterGenerated']) ??
+            _parseDouble(data['aguaGenerada']) ??
+            0.0;
         if (waterGenerated > maxWater) {
           maxWater = waterGenerated;
         }
@@ -954,7 +852,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Text('⚡ Eficiencia: ${efficiency.toStringAsFixed(3)} kWh/L'),
               const SizedBox(height: 16),
               Text(
-                efficiency > 0 ? '✅ Sistema funcionando correctamente' : '⚠️ Sin datos de eficiencia',
+                efficiency > 0
+                    ? '✅ Sistema funcionando correctamente'
+                    : '⚠️ Sin datos de eficiencia',
                 style: TextStyle(
                   color: efficiency > 0 ? Colors.green : Colors.orange,
                   fontWeight: FontWeight.bold,
@@ -968,12 +868,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               style: TextButton.styleFrom(
                 foregroundColor: Colors.white,
               ),
-              child: const Text('Cerrar', style: TextStyle(color: Colors.white)),
+              child:
+                  const Text('Cerrar', style: TextStyle(color: Colors.white)),
             ),
             ElevatedButton(
               onPressed: () async {
                 // Guardar reporte en historial
-                await DailyReportService().saveReportToHistory(today, maxEnergy, maxWater, efficiency);
+                await DailyReportService().saveReportToHistory(
+                    today, maxEnergy, maxWater, efficiency);
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
@@ -982,12 +884,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 );
               },
-              child: const Text('Guardar en Historial', style: TextStyle(color: Colors.white)),
+              child: const Text('Guardar en Historial',
+                  style: TextStyle(color: Colors.white)),
             ),
           ],
         ),
       );
-
     } catch (e) {
       Navigator.pop(context); // Cerrar diálogo de carga si hay error
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1006,4 +908,4 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (value is String) return double.tryParse(value);
     return null;
   }
-} 
+}

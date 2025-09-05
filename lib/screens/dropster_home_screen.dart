@@ -1,7 +1,9 @@
 import 'dart:async';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import '../services/singleton_mqtt_service.dart';
+import '../services/mqtt_service.dart';
+import '../services/mqtt_hive.dart';
 
 class DropsterHomeScreen extends StatefulWidget {
   const DropsterHomeScreen({Key? key}) : super(key: key);
@@ -11,24 +13,35 @@ class DropsterHomeScreen extends StatefulWidget {
 }
 
 class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
-  // Valores simulados
-  double tankLevel = 0.65; // 65%
-  bool isSystemOn = true;
-  double energyToday = 2.3; // kWh
-  double tempAmb = 27.5; // °C
-  double humRel = 68.0; // %
-  double humAbs = 18.2; // g/m³
-  List<FlSpot> chartData = List.generate(24, (i) => FlSpot(i.toDouble(), 1.5 + Random().nextDouble() * 2));
-  List<FlSpot> chartData2 = List.generate(24, (i) => FlSpot(i.toDouble(), 1.0 + Random().nextDouble() * 1.5));
-  double aguaGenerada = 1.5; // L
+  // Datos reales del ESP32
+  double tankLevel = 0.0;
+  bool isSystemOn = false;
+  double energyToday = 0.0;
+  double tempAmb = 0.0;
+  double humRel = 0.0;
+  double humAbs = 0.0;
+  List<FlSpot> chartData = List.generate(24, (i) => FlSpot(i.toDouble(), 0));
+  List<FlSpot> chartData2 = List.generate(24, (i) => FlSpot(i.toDouble(), 0));
+  double aguaGenerada = 0.0;
 
   Timer? timer;
-  final Random random = Random();
+  final MqttService _mqttService = MqttService();
 
   @override
   void initState() {
     super.initState();
-    timer = Timer.periodic(const Duration(seconds: 2), (_) => _simulateData());
+    _listenToMqttData();
+    _initializeMqttConnection();
+  }
+
+  void _initializeMqttConnection() async {
+    try {
+      await MqttHiveService.initHive();
+      final hiveService = MqttHiveService();
+      await _mqttService.connect(hiveService);
+    } catch (e) {
+      print('Error conectando MQTT: $e');
+    }
   }
 
   @override
@@ -37,19 +50,50 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
     super.dispose();
   }
 
-  void _simulateData() {
+  void _listenToMqttData() {
+    SingletonMqttService().notifier.addListener(() {
+      final data = SingletonMqttService().notifier.value;
+      if (data.isNotEmpty) {
+        setState(() {
+          // Datos reales del ESP32
+          tempAmb = (data['temperaturaAmbiente'] ?? 0.0).toDouble();
+          humRel = (data['humedadRelativa'] ?? 0.0).toDouble();
+          humAbs = (data['humedadAbsoluta'] ?? 0.0).toDouble();
+          aguaGenerada = (data['aguaAlmacenada'] ?? 0.0).toDouble();
+          tankLevel = (aguaGenerada / 10.0).clamp(0.0, 1.0);
+          energyToday = (data['energia'] ?? 0.0).toDouble();
+          
+          // Actualizar gráfica con datos reales del ESP32
+          int hour = DateTime.now().hour;
+          if (energyToday > 0) {
+            chartData[hour] = FlSpot(hour.toDouble(), energyToday);
+          }
+          if (aguaGenerada > 0) {
+            chartData2[hour] = FlSpot(hour.toDouble(), aguaGenerada);
+          }
+        });
+      }
+    });
+  }
+
+  void _toggleSystem() async {
+    if (!_mqttService.isConnected) {
+      print('MQTT no conectado. Intentando reconectar...');
+      _initializeMqttConnection();
+      // Verificar conexión después de intentar reconectar
+      await Future.delayed(Duration(milliseconds: 500));
+      if (!_mqttService.isConnected) {
+        print('No se pudo conectar a MQTT');
+        return;
+      }
+    }
+    
+    final command = isSystemOn ? "OFF" : "ON";
+    print('Enviando comando: $command');
+    await _mqttService.publishCommand(command);
+    
     setState(() {
-      // Simular variaciones
-      tankLevel = (tankLevel + (random.nextDouble() - 0.5) * 0.02).clamp(0.0, 1.0);
-      energyToday = (energyToday + (random.nextDouble() - 0.5) * 0.1).clamp(0.0, 10.0);
-      tempAmb = (tempAmb + (random.nextDouble() - 0.5) * 0.3).clamp(15.0, 35.0);
-      humRel = (humRel + (random.nextDouble() - 0.5) * 2).clamp(30.0, 100.0);
-      humAbs = (humAbs + (random.nextDouble() - 0.5) * 0.5).clamp(5.0, 30.0);
-      aguaGenerada = (aguaGenerada + (random.nextDouble() - 0.5) * 0.1).clamp(0.0, 5.0);
-      // Actualizar gráfica solo en la hora actual
-      int hour = DateTime.now().hour;
-      chartData[hour] = FlSpot(hour.toDouble(), energyToday + random.nextDouble() * 0.5);
-      chartData2[hour] = FlSpot(hour.toDouble(), aguaGenerada + random.nextDouble() * 0.5);
+      isSystemOn = !isSystemOn;
     });
   }
 
@@ -162,11 +206,7 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               ),
-              onPressed: () {
-                setState(() {
-                  isSystemOn = !isSystemOn;
-                });
-              },
+              onPressed: _toggleSystem,
               child: Text(isSystemOn ? 'Apagar' : 'Encender'),
             ),
           ],

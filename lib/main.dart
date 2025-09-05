@@ -9,6 +9,8 @@ import 'package:dropster/screens/settings_screen.dart';
 import 'package:dropster/screens/info_screen.dart';
 import 'package:path_provider/path_provider.dart';
 import 'services/mqtt_hive.dart';
+import 'services/singleton_mqtt_service.dart';
+import 'services/notification_service.dart';
 import 'package:dropster/screens/dropster_home_screen.dart';
 
 void main() {
@@ -90,8 +92,23 @@ class _LoaderScreenState extends State<LoaderScreen> {
     final dir = await getApplicationDocumentsDirectory();
     await Hive.initFlutter(dir.path);
     await MqttHiveService.initHive();
-    // Simula un pequeño delay si quieres que se note el splash
-    // await Future.delayed(Duration(seconds: 2));
+
+    // Inicializar servicio de notificaciones
+    print('[APP INIT] Inicializando servicio de notificaciones...');
+    try {
+      await NotificationService().initialize();
+      final hasPermission = await NotificationService().checkPermissions();
+      if (!hasPermission) {
+        await NotificationService().requestPermissions();
+      }
+      print('[APP INIT] Servicio de notificaciones inicializado');
+    } catch (e) {
+      print('[APP INIT] Error inicializando notificaciones: $e');
+    }
+
+    // La conexión MQTT se inicializará en MainScreen para evitar duplicaciones
+    print('[APP INIT] Inicialización básica completada');
+
     setState(() {
       _initialized = true;
     });
@@ -134,6 +151,7 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
+  bool _mqttInitialized = false;
 
   final List<Widget> _pages = [
     HomeScreen(),
@@ -144,6 +162,42 @@ class _MainScreenState extends State<MainScreen> {
     SettingsScreen(),
     InfoScreen(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    if (!_mqttInitialized) {
+      try {
+        // Inicializar Hive primero
+        WidgetsFlutterBinding.ensureInitialized();
+        final dir = await getApplicationDocumentsDirectory();
+        await Hive.initFlutter(dir.path);
+        await MqttHiveService.initHive();
+        print('[APP INIT] Hive inicializado correctamente');
+
+        // Inicializar MQTT con configuración desde Hive
+        print(
+            '[APP INIT] Conectando a broker MQTT con configuración guardada...');
+        await SingletonMqttService().connect();
+        print('[APP INIT] ✅ Conexión MQTT inicializada');
+
+        // El monitoreo de conexión ya se inicia automáticamente en connect()
+        print('[APP INIT] 🔄 Monitoreo de conexión MQTT activado');
+      } catch (e) {
+        print('[APP INIT] ❌ Error conectando a broker local: $e');
+        print('[APP INIT] ⚠️ MQTT no disponible, app funcionará sin conexión');
+      } finally {
+        // Marcar como inicializado para que la app funcione
+        setState(() {
+          _mqttInitialized = true;
+        });
+      }
+    }
+  }
 
   void _onItemTapped(int index) {
     setState(() {

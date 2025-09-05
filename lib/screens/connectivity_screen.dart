@@ -13,7 +13,18 @@ class ConnectivityScreen extends StatefulWidget {
 class _ConnectivityScreenState extends State<ConnectivityScreen> {
   bool isSavingEnabled = MqttHiveService.isSavingEnabled();
   bool isConnecting = false;
-  bool get isConnected => SingletonMqttService().mqttConnected;
+  late final ValueNotifier<bool> connectionNotifier;
+
+  @override
+  void initState() {
+    super.initState();
+    connectionNotifier = SingletonMqttService().connectionNotifier;
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
 
   void _toggleSaving(bool value) {
     setState(() {
@@ -23,9 +34,22 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
   }
 
   Future<void> _connectMQTT() async {
-    setState(() { isConnecting = true; });
-    await SingletonMqttService().connect();
-    setState(() { isConnecting = false; });
+    setState(() {
+      isConnecting = true;
+    });
+    try {
+      await SingletonMqttService().connect();
+      print('[UI DEBUG] Conexión MQTT exitosa desde pantalla de conectividad');
+    } catch (e) {
+      print(
+          '[UI DEBUG] Error al conectar MQTT desde pantalla de conectividad: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error de conexión: $e')),
+      );
+    }
+    setState(() {
+      isConnecting = false;
+    });
   }
 
   Future<void> _disconnectMQTT() async {
@@ -38,6 +62,27 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Todos los datos han sido eliminados.')),
     );
+  }
+
+  Future<void> _sendCommand(String command) async {
+    try {
+      await SingletonMqttService().mqttClientService.publishCommand(command);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Comando "$command" enviado correctamente'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      print('[UI DEBUG] Comando enviado: $command');
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error enviando comando: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      print('[UI DEBUG] Error enviando comando $command: $e');
+    }
   }
 
   @override
@@ -62,24 +107,31 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // Franja horizontal de estado de conexión
-          Container(
-            width: double.infinity,
-            color: Color(0xFF0C434A),
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-            child: Row(
-              children: [
-                Icon(Icons.wifi_off, color: colorAccent),
-                SizedBox(width: 8),
-                Text(
-                  'Sin conexión',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
+          ValueListenableBuilder<bool>(
+            valueListenable: connectionNotifier,
+            builder: (context, isConnected, child) {
+              return Container(
+                width: double.infinity,
+                color: isConnected ? Color(0xFF2E7D32) : Color(0xFF0C434A),
+                padding:
+                    const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                child: Row(
+                  children: [
+                    Icon(isConnected ? Icons.wifi : Icons.wifi_off,
+                        color: colorAccent),
+                    SizedBox(width: 8),
+                    Text(
+                      isConnected ? 'Conectado a MQTT' : 'Sin conexión',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
+              );
+            },
           ),
           Expanded(
             child: SingleChildScrollView(
@@ -88,10 +140,12 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Card(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
                     elevation: 2,
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 10, horizontal: 12),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.center,
@@ -103,7 +157,8 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
                               SizedBox(width: 8),
                               Text(
                                 'Conexión MQTT',
-                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 18),
                               ),
                             ],
                           ),
@@ -112,25 +167,253 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Expanded(
-                                child: ElevatedButton(
-                                  onPressed: isConnected || isConnecting ? null : _connectMQTT,
-                                  child: isConnecting ? CircularProgressIndicator(color: Colors.white) : Text('Conectar MQTT'),
+                                child: ValueListenableBuilder<bool>(
+                                  valueListenable: connectionNotifier,
+                                  builder: (context, isConnected, child) {
+                                    return ElevatedButton(
+                                      onPressed: isConnected || isConnecting
+                                          ? null
+                                          : _connectMQTT,
+                                      child: isConnecting
+                                          ? CircularProgressIndicator(
+                                              color: Colors.white)
+                                          : Text('Conectar MQTT'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: colorAccent,
+                                        foregroundColor: Colors.white,
+                                        shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(20)),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: ValueListenableBuilder<bool>(
+                                  valueListenable: connectionNotifier,
+                                  builder: (context, isConnected, child) {
+                                    return ElevatedButton(
+                                      onPressed:
+                                          isConnected ? _disconnectMQTT : null,
+                                      child: Text('Desconectar'),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.grey,
+                                        foregroundColor: Colors.white,
+                                        shape: RoundedRectangleBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(20)),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Nueva sección de información de debug MQTT
+                  Card(
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    elevation: 2,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.bug_report,
+                                  color: colorAccent, size: 28),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Debug MQTT',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    SizedBox(height: 8),
+                                    Text(
+                                      'Información de conexión y configuración',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.white70,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Divider(height: 24),
+                          Container(
+                            padding: EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: colorPrimary.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                  color: colorPrimary.withOpacity(0.3)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Configuración Actual:',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                SizedBox(height: 8),
+                                Text(
+                                  'Broker: ${SingletonMqttService().broker}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.white70,
+                                  ),
+                                ),
+                                Text(
+                                  'Puerto: ${SingletonMqttService().port}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.white70,
+                                  ),
+                                ),
+                                Text(
+                                  'Tópico: ${SingletonMqttService().topic}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.white70,
+                                  ),
+                                ),
+                                SizedBox(height: 8),
+                                Text(
+                                  'Estado: ${SingletonMqttService().mqttConnected ? "CONECTADO" : "DESCONECTADO"}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: SingletonMqttService().mqttConnected
+                                        ? Colors.green
+                                        : Colors.red,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  // Nueva sección de control del ESP32
+                  Card(
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    elevation: 2,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.control_camera,
+                                  color: colorAccent, size: 28),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Control del ESP32',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    SizedBox(height: 8),
+                                    Text(
+                                      'Envía comandos al dispositivo ESP32',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.white70,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const Divider(height: 24),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _sendCommand('ON'),
+                                  icon: Icon(Icons.power),
+                                  label: Text('ENCENDER'),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: colorAccent,
+                                    backgroundColor: Colors.green,
                                     foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                    padding: EdgeInsets.symmetric(vertical: 12),
                                   ),
                                 ),
                               ),
                               SizedBox(width: 8),
                               Expanded(
-                                child: ElevatedButton(
-                                  onPressed: isConnected ? _disconnectMQTT : null,
-                                  child: Text('Desconectar'),
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _sendCommand('OFF'),
+                                  icon: Icon(Icons.power_off),
+                                  label: Text('APAGAR'),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.grey,
+                                    backgroundColor: Colors.red,
                                     foregroundColor: Colors.white,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                    padding: EdgeInsets.symmetric(vertical: 12),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _sendCommand('GET_STATUS'),
+                                  icon: Icon(Icons.info),
+                                  label: Text('ESTADO'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: colorAccent,
+                                    foregroundColor: Colors.white,
+                                    padding: EdgeInsets.symmetric(vertical: 12),
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: ElevatedButton.icon(
+                                  onPressed: () => _sendCommand('GET_DATA'),
+                                  icon: Icon(Icons.data_usage),
+                                  label: Text('DATOS'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: colorPrimary,
+                                    foregroundColor: Colors.white,
+                                    padding: EdgeInsets.symmetric(vertical: 12),
                                   ),
                                 ),
                               ),
@@ -142,7 +425,8 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
                   ),
                   const SizedBox(height: 24),
                   Card(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
                     elevation: 2,
                     child: Padding(
                       padding: const EdgeInsets.all(16),
@@ -151,7 +435,8 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Icon(Icons.settings, color: colorAccent, size: 28),
+                              Icon(Icons.settings,
+                                  color: colorAccent, size: 28),
                               SizedBox(width: 12),
                               Expanded(
                                 child: Column(
@@ -193,9 +478,11 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
                           ),
                           const Divider(height: 28),
                           ListTile(
-                            leading: Icon(Icons.delete_sweep, color: colorAccent),
+                            leading:
+                                Icon(Icons.delete_sweep, color: colorAccent),
                             title: const Text('Borrar todos los datos'),
-                            subtitle: const Text('Elimina todos los datos históricos almacenados'),
+                            subtitle: const Text(
+                                'Elimina todos los datos históricos almacenados'),
                             onTap: _clearAllData,
                           ),
                         ],

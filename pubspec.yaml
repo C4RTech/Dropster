@@ -34,7 +34,7 @@ dependencies:
   path_provider: ^2.1.0
   fl_chart: ^0.63.0
   cupertino_icons: ^1.0.8
-  permission_handler: ^10.4.0
+  permission_handler: ^12.0.0
   get: ^4.7.2
   mqtt_client: ^10.0.0
   shared_preferences: ^2.2.2
@@ -44,7 +44,7 @@ dependencies:
   hive_flutter: ^1.1.0
   flutter_riverpod: ^2.0.0
   flutter_svg: ^2.0.9
-  flutter_local_notifications: ^16.3.2
+  flutter_local_notifications: ^17.2.0
 
 dev_dependencies:
   flutter_test:
@@ -76,6 +76,8 @@ flutter:
       - lib/assets/images/Dropster_simbolo.png
       - lib/assets/images/Dropster_Lg.png
       - lib/assets/images/Dropster_APK_Icono.png
+      - lib/assets/images/water_drop.svg
+      - lib/assets/images/water_drop_eco.svg
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
@@ -103,7 +105,9 @@ flutter:
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
 
-flutter_icons:
+flutter_launcher_icons:
   android: true
   ios: true
   image_path: "lib/assets/images/Dropster_APK_Icono.png"
+  adaptive_icon_background: "#1D347A"
+  adaptive_icon_foreground: "lib/assets/images/Dropster_APK_Icono.png"

@@ -39,7 +39,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     "current": Icons.flash_on,
     "voltage": Icons.bolt,
     "frequency": Icons.waves,
-    "battery": Icons.battery_full, // Notificación de batería
     "tank_level": Icons.water_drop, // Notificación de nivel del tanque
   };
 
@@ -48,14 +47,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   double? nominalVoltage;
   double? nominalCurrent;
-
-  double? get batteryValue {
-    final bat = globalNotifier.value['battery'];
-    if (bat is double) return bat;
-    if (bat is int) return bat.toDouble();
-    if (bat is String) return double.tryParse(bat);
-    return null;
-  }
 
   @override
   void initState() {
@@ -161,46 +152,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  Widget buildBatteryIconButton() {
-    final battery = batteryValue;
-    IconData icon = Icons.battery_full;
-    Color color = Colors.grey;
-    String message = "Estado de la batería: --";
-
-    if (battery == null) {
-      icon = Icons.battery_unknown;
-      color = Colors.grey;
-      message = "Estado de la batería: No disponible";
-    } else if (battery >= 3.0) {
-      icon = Icons.battery_full;
-      color = Colors.green;
-      message = "Estado de la batería: Cargada/Conectado";
-    } else if (battery > 2.5) {
-      icon = Icons.battery_5_bar;
-      color = Colors.amber;
-      message = "Estado de la batería: Buena";
-    } else {
-      icon = Icons.battery_alert;
-      color = Colors.red;
-      message =
-          "Estado de la batería: Nivel bajo, se recomienda cambiar pronto";
-    }
-
-    return IconButton(
-      tooltip: "Estado batería",
-      icon: Icon(icon, color: color),
-      onPressed: () {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message, style: TextStyle(color: Colors.white)),
-            backgroundColor: color,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      },
-    );
-  }
-
   Widget _buildNotificationCard(Map anomaly) {
     final int? timestamp = anomaly['timestamp'] is int
         ? anomaly['timestamp']
@@ -235,12 +186,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               " | Valor: ${c.toStringAsFixed(2)} A, Rango: ${min.toStringAsFixed(1)} - ${max.toStringAsFixed(1)}";
         }
       }
-      if (type == "battery" && anomaly["value"] != null) {
-        final b = double.tryParse(anomaly["value"].toString());
-        if (b != null) {
-          valueInfo = " | Voltaje: ${b.toStringAsFixed(2)} V";
-        }
-      }
       if (type == "tank_level" && anomaly["value"] != null) {
         final t = double.tryParse(anomaly["value"].toString());
         if (t != null) {
@@ -249,22 +194,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       }
     }
 
-    // Título especial si es notificación de batería
-    final isBattery = type == "battery";
-    final title = isBattery
-        ? (anomaly['description'] ?? "Notificación de batería")
-        : (anomaly['description'] ?? 'Anomalía');
+    final title = anomaly['description'] ?? 'Anomalía';
 
     return Card(
       margin: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       shape: RoundedRectangleBorder(
-        side:
-            BorderSide(color: isBattery ? Colors.amber : phaseColor, width: 2),
+        side: BorderSide(color: phaseColor, width: 2),
         borderRadius: BorderRadius.circular(10),
       ),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: isBattery ? Colors.amber : phaseColor,
+          backgroundColor: phaseColor,
           child: Icon(
             typeIcons[type] ?? Icons.warning,
             color: Colors.white,
@@ -273,16 +213,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         title: Text(title),
         subtitle: Text(
           "$dateStr $timeStr"
-          "${phase.isNotEmpty && phase != "TODAS" && !isBattery ? "  •  Fase $phase" : ""}"
+          "${phase.isNotEmpty && phase != "TODAS" ? "  •  Fase $phase" : ""}"
           "$valueInfo",
         ),
-        trailing: typeLabels[type] != null || isBattery
+        trailing: typeLabels[type] != null
             ? Container(
                 padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: appBarColor.withOpacity(0.07),
-                  border: Border.all(
-                      color: isBattery ? Colors.amber : appBarColor, width: 1),
+                  border: Border.all(color: appBarColor, width: 1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Row(
@@ -290,14 +229,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   children: [
                     Icon(
                       typeIcons[type] ?? Icons.warning,
-                      color: isBattery ? Colors.amber : appBarColor,
+                      color: appBarColor,
                       size: 18,
                     ),
                     SizedBox(width: 4),
                     Text(
-                      isBattery ? "Batería" : typeLabels[type]!,
+                      typeLabels[type]!,
                       style: TextStyle(
-                        color: isBattery ? Colors.amber[800] : appBarColor,
+                        color: appBarColor,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -378,51 +317,23 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 ),
               );
             }),
-            // Filtro especial para batería
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: ChoiceChip(
-                avatar: Icon(
-                  Icons.battery_full,
-                  color:
-                      _selectedType == "battery" ? Colors.white : appBarColor,
-                  size: 20,
-                ),
-                label: Text(
-                  "Batería",
-                  style: TextStyle(
-                    color:
-                        _selectedType == "battery" ? Colors.white : appBarColor,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                selected: _selectedType == "battery",
-                selectedColor: Colors.amber,
-                backgroundColor: Colors.grey[200],
-                showCheckmark: false,
-                onSelected: (_) {
-                  setState(() {
-                    _selectedType = "battery";
-                  });
-                  _loadAndShowAnomalies();
-                },
-              ),
-            ),
             // Filtro especial para nivel del tanque
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: ChoiceChip(
                 avatar: Icon(
                   Icons.water_drop,
-                  color:
-                      _selectedType == "tank_level" ? Colors.white : appBarColor,
+                  color: _selectedType == "tank_level"
+                      ? Colors.white
+                      : appBarColor,
                   size: 20,
                 ),
                 label: Text(
                   "Nivel Tanque",
                   style: TextStyle(
-                    color:
-                        _selectedType == "tank_level" ? Colors.white : appBarColor,
+                    color: _selectedType == "tank_level"
+                        ? Colors.white
+                        : appBarColor,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -564,51 +475,80 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final colorPrimary = Theme.of(context).colorScheme.primary;
     final colorAccent = Theme.of(context).colorScheme.secondary;
     final colorText = Theme.of(context).colorScheme.onBackground;
-    
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Notificaciones'),
         backgroundColor: colorPrimary,
         foregroundColor: Colors.white,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.clear_all),
+            onPressed: _showClearDialog,
+            tooltip: 'Borrar todas las notificaciones',
+          ),
+        ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('Notificaciones recientes', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: colorText)),
-            const SizedBox(height: 16),
-            Card(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              elevation: 4,
-              child: ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: colorAccent,
-                  child: Icon(Icons.warning, color: Colors.white),
-                ),
-                title: Text('Tanque lleno', style: TextStyle(fontWeight: FontWeight.bold, color: colorAccent)),
-                subtitle: Text('29/06/2025 22:05:43  •  Nivel del tanque al 100%', style: TextStyle(color: colorText)),
-                trailing: Icon(Icons.chevron_right, color: colorAccent),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Card(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-              elevation: 2,
-              child: ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Colors.redAccent,
-                  child: Icon(Icons.thermostat, color: Colors.white),
-                ),
-                title: Text('Temperatura alta', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent)),
-                subtitle: Text('29/06/2025 21:50:12  •  Temp. ambiente 36°C', style: TextStyle(color: colorText)),
-                trailing: Icon(Icons.chevron_right, color: colorAccent),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text('Simulación de notificaciones recientes.', style: TextStyle(color: colorText.withOpacity(0.7))),
-          ],
-        ),
+      body: Column(
+        children: [
+          // Lista de notificaciones
+          Expanded(
+            child: _visibleAnomalies.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.notifications_none,
+                          size: 64,
+                          color: Colors.grey[400],
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No hay notificaciones',
+                          style: TextStyle(
+                            fontSize: 18,
+                            color: Colors.grey[600],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Las alertas aparecerán aquí cuando se detecten anomalías',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.grey[500],
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: _visibleAnomalies.length +
+                        (_visibleAnomalies.length < _allAnomalies.length
+                            ? 1
+                            : 0),
+                    itemBuilder: (context, index) {
+                      if (index == _visibleAnomalies.length) {
+                        // Botón "Mostrar más"
+                        return Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: ElevatedButton(
+                            onPressed: _show20More,
+                            child: const Text('Mostrar más notificaciones'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: appBarColor,
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                        );
+                      }
+                      return _buildNotificationCard(_visibleAnomalies[index]);
+                    },
+                  ),
+          ),
+        ],
       ),
     );
   }
@@ -616,10 +556,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   String _getActiveFiltersText() {
     List<String> filters = [];
     if (_selectedPhase != "Todas") filters.add('Fase: $_selectedPhase');
-    if (_selectedType != "Todos") filters.add('Tipo: ${typeLabels[_selectedType]}');
+    if (_selectedType != "Todos")
+      filters.add('Tipo: ${typeLabels[_selectedType]}');
     if (_selectedRange != null) {
       final formatter = DateFormat('dd/MM/yyyy');
-      filters.add('Rango: ${formatter.format(_selectedRange!.start)} - ${formatter.format(_selectedRange!.end)}');
+      filters.add(
+          'Rango: ${formatter.format(_selectedRange!.start)} - ${formatter.format(_selectedRange!.end)}');
     }
     return filters.join(', ');
   }
@@ -646,9 +588,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               DropdownButtonFormField<String>(
                 value: _selectedPhase,
                 decoration: const InputDecoration(labelText: 'Fase'),
-                items: phaseColors.keys.map((phase) => 
-                  DropdownMenuItem(value: phase, child: Text(phase))
-                ).toList(),
+                items: phaseColors.keys
+                    .map((phase) =>
+                        DropdownMenuItem(value: phase, child: Text(phase)))
+                    .toList(),
                 onChanged: (value) {
                   setState(() => _selectedPhase = value!);
                 },
@@ -658,9 +601,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               DropdownButtonFormField<String>(
                 value: _selectedType,
                 decoration: const InputDecoration(labelText: 'Tipo'),
-                items: typeLabels.entries.map((entry) => 
-                  DropdownMenuItem(value: entry.key, child: Text(entry.value))
-                ).toList(),
+                items: typeLabels.entries
+                    .map((entry) => DropdownMenuItem(
+                        value: entry.key, child: Text(entry.value)))
+                    .toList(),
                 onChanged: (value) {
                   setState(() => _selectedType = value!);
                 },
@@ -679,10 +623,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     setState(() => _selectedRange = range);
                   }
                 },
-                child: Text(_selectedRange == null 
-                  ? 'Seleccionar rango de fechas' 
-                  : 'Rango: ${DateFormat('dd/MM/yyyy').format(_selectedRange!.start)} - ${DateFormat('dd/MM/yyyy').format(_selectedRange!.end)}'
-                ),
+                child: Text(_selectedRange == null
+                    ? 'Seleccionar rango de fechas'
+                    : 'Rango: ${DateFormat('dd/MM/yyyy').format(_selectedRange!.start)} - ${DateFormat('dd/MM/yyyy').format(_selectedRange!.end)}'),
               ),
             ],
           ),
@@ -709,7 +652,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Borrar notificaciones'),
-        content: const Text('¿Estás seguro de que quieres borrar todas las notificaciones? Esta acción no se puede deshacer.'),
+        content: const Text(
+            '¿Estás seguro de que quieres borrar todas las notificaciones? Esta acción no se puede deshacer.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -728,13 +672,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  Widget _buildAnomalyCard(Map anomaly, Color colorPrimary, Color colorAccent, Color colorText) {
+  Widget _buildAnomalyCard(
+      Map anomaly, Color colorPrimary, Color colorAccent, Color colorText) {
     final timestamp = anomaly['timestamp'];
     final type = anomaly['type'] ?? '';
     final phase = anomaly['phase'] ?? '';
     final description = anomaly['description'] ?? '';
     final value = anomaly['value'];
-    
+
     DateTime? date;
     if (timestamp != null) {
       if (timestamp is int) {
@@ -774,7 +719,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             if (phase.isNotEmpty)
               Text(
                 'Fase: ${phase.toUpperCase()}',
-                style: TextStyle(fontSize: 12, color: phaseColors[phase.toUpperCase()] ?? Colors.grey),
+                style: TextStyle(
+                    fontSize: 12,
+                    color: phaseColors[phase.toUpperCase()] ?? Colors.grey),
               ),
           ],
         ),
@@ -795,8 +742,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         return Colors.orange;
       case 'frequency':
         return Colors.purple;
-      case 'battery':
-        return Colors.amber;
+      case 'tank_level':
+        return Colors.blue;
       default:
         return Colors.grey;
     }
@@ -815,7 +762,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               Text('Descripción: ${anomaly['description']}'),
               const SizedBox(height: 8),
               if (anomaly['timestamp'] != null)
-                Text('Fecha: ${DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.fromMillisecondsSinceEpoch(anomaly['timestamp']))}'),
+                Text(
+                    'Fecha: ${DateFormat('dd/MM/yyyy HH:mm:ss').format(DateTime.fromMillisecondsSinceEpoch(anomaly['timestamp']))}'),
               const SizedBox(height: 8),
               if (anomaly['type'] != null)
                 Text('Tipo: ${typeLabels[anomaly['type']] ?? anomaly['type']}'),
@@ -823,14 +771,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               if (anomaly['phase'] != null)
                 Text('Fase: ${anomaly['phase'].toString().toUpperCase()}'),
               const SizedBox(height: 8),
-              if (anomaly['value'] != null)
-                Text('Valor: ${anomaly['value']}'),
+              if (anomaly['value'] != null) Text('Valor: ${anomaly['value']}'),
               const SizedBox(height: 8),
               if (anomaly['limitMin'] != null && anomaly['limitMax'] != null)
-                Text('Límites: ${anomaly['limitMin']} - ${anomaly['limitMax']}'),
+                Text(
+                    'Límites: ${anomaly['limitMin']} - ${anomaly['limitMax']}'),
               const SizedBox(height: 8),
-              if (anomaly['limit'] != null)
-                Text('Límite: ${anomaly['limit']}'),
+              if (anomaly['limit'] != null) Text('Límite: ${anomaly['limit']}'),
             ],
           ),
         ),

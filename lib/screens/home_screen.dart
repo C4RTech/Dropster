@@ -3,6 +3,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
 import '../services/singleton_mqtt_service.dart';
 import '../services/mqtt_hive.dart';
+import '../services/mqtt_service.dart';
 import '../widgets/professional_water_drop.dart';
 import 'dart:async';
 
@@ -15,7 +16,8 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
   // Valores nominales por defecto
   double nominalVoltage = 110.0;
   double nominalCurrent = 10.0;
@@ -26,6 +28,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   ValueNotifier<Map<String, dynamic>> get globalNotifier =>
       SingletonMqttService().notifier;
 
+  // Acceso al notifier de estado de conexión MQTT
+  ValueNotifier<bool> get connectionNotifier =>
+      SingletonMqttService().connectionNotifier;
+
   // Control de anomalías detectadas para evitar registros duplicados
   Map<String, bool> _anomalyActive = {};
   bool _firstLoadDone = false;
@@ -33,14 +39,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   late AnimationController _controller;
   late Animation<double> _animation;
 
-  // Simulación de nivel de tanque en bucle
-  double simulatedTankLevel = 0.0;
-  bool _increasing = true;
-  Timer? _simTimer;
+  // Nivel del tanque real desde ESP32
+  double tankLevel = 0.0;
 
-  // Variable para simular el tiempo encendido
-  Duration runningTime = Duration.zero;
-  Timer? _timerRunning;
+  // Control del sistema AWG
+  bool isSystemOn = false;
+  final MqttService _mqttService = MqttService();
 
   /// Obtiene el valor de la batería desde el notifier global
   double? get batteryValue {
@@ -62,7 +66,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   /// Devuelve el tipo de fuente de datos ("BLE", "MQTT", o vacío)
   String get sourceType {
-    final source = (globalNotifier.value['source'] ?? '').toString().toUpperCase();
+    final source =
+        (globalNotifier.value['source'] ?? '').toString().toUpperCase();
     if (source == "BLE") return "BLE";
     if (source == "MQTT") return "MQTT";
     return "";
@@ -71,45 +76,57 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _loadSettings();      // Carga los valores nominales almacenados
-    _initLatestData();    // Carga los últimos datos guardados
+    _loadSettings(); // Carga los valores nominales almacenados
+    _initLatestData(); // Carga los últimos datos guardados
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
     _animation = CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
 
-    // Iniciar simulación de nivel de tanque en bucle
-    _simTimer = Timer.periodic(const Duration(milliseconds: 40), (_) {
-      setState(() {
-        if (_increasing) {
-          simulatedTankLevel += 0.01;
-          if (simulatedTankLevel >= 1.0) {
-            simulatedTankLevel = 1.0;
-            _increasing = false;
-          }
-        } else {
-          simulatedTankLevel -= 0.01;
-          if (simulatedTankLevel <= 0.0) {
-            simulatedTankLevel = 0.0;
-            _increasing = true;
-          }
-        }
-      });
-    });
-    // Iniciar contador de tiempo encendido
-    _timerRunning = Timer.periodic(const Duration(seconds: 1), (_) {
-      setState(() {
-        runningTime += const Duration(seconds: 1);
-      });
+    // Escuchar datos MQTT para actualizar nivel de tanque real
+    globalNotifier.addListener(() {
+      final data = globalNotifier.value;
+      print('[UI DEBUG] Notifier actualizado: ${data.keys}');
+
+      // Obtener capacidad del tanque desde configuración
+      final settingsBox = Hive.box('settings');
+      final tankCapacity =
+          settingsBox.get('tankCapacity', defaultValue: 1000.0);
+
+      // Intentar diferentes nombres de clave para el agua almacenada
+      double? aguaReal;
+      if (data['aguaAlmacenada'] != null) {
+        aguaReal = (data['aguaAlmacenada'] as num).toDouble();
+      } else if (data['agua'] != null) {
+        aguaReal = (data['agua'] as num).toDouble();
+      } else if (data['waterStored'] != null) {
+        aguaReal = (data['waterStored'] as num).toDouble();
+      }
+
+      if (aguaReal != null && aguaReal >= 0 && tankCapacity > 0) {
+        // Calcular porcentaje basado en capacidad configurada
+        final porcentaje = (aguaReal / tankCapacity).clamp(0.0, 1.0);
+        setState(() {
+          tankLevel = porcentaje;
+          print(
+              '[UI DEBUG] Nivel de tanque actualizado a ${(porcentaje * 100).toStringAsFixed(1)}% (agua: $aguaReal L de $tankCapacity L)');
+        });
+      } else {
+        print(
+            '[UI DEBUG] No se encontró dato de agua almacenada o capacidad inválida');
+      }
+
+      // Forzar actualización de la UI cuando llegan datos nuevos
+      if (data.isNotEmpty && mounted) {
+        setState(() {});
+      }
     });
   }
 
   @override
   void dispose() {
     _controller.dispose();
-    _simTimer?.cancel();
-    _timerRunning?.cancel();
     super.dispose();
   }
 
@@ -128,14 +145,42 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   /// Inicializa Hive y carga los últimos datos registrados, si existen.
   Future<void> _initLatestData() async {
-    await MqttHiveService.initHive();
-    final latest = await MqttHiveService.getLatestData();
-    if (latest != null && globalNotifier.value.isEmpty) {
-      globalNotifier.value = {...latest};
+    try {
+      // Timeout de 5 segundos para evitar que se quede cargando indefinidamente
+      await MqttHiveService.initHive().timeout(
+        const Duration(seconds: 5),
+        onTimeout: () {
+          print(
+              '[INIT] Timeout inicializando Hive, continuando sin datos previos');
+          return;
+        },
+      );
+
+      final latest = await MqttHiveService.getLatestData().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () {
+          print('[INIT] Timeout cargando datos previos, continuando sin datos');
+          return null;
+        },
+      );
+
+      if (latest != null && globalNotifier.value.isEmpty) {
+        globalNotifier.value = {...latest};
+        print('[INIT] Datos previos cargados exitosamente');
+      } else {
+        print('[INIT] No hay datos previos o ya hay datos en el notifier');
+      }
+    } catch (e) {
+      print('[INIT] Error inicializando datos: $e');
+    } finally {
+      // Asegurar que siempre se complete la carga inicial
+      if (mounted) {
+        setState(() {
+          _firstLoadDone = true;
+        });
+        print('[INIT] Carga inicial completada');
+      }
     }
-    setState(() {
-      _firstLoadDone = true;
-    });
   }
 
   /// Detecta y guarda anomalías de voltaje, corriente y frecuencia en Hive.
@@ -201,11 +246,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     final freq = double.tryParse(data['frequency']?.toString() ?? "");
     if (freq != null) {
       final anomalyKey = 'frequency';
-      bool outOfRange = !((freq >= 59.9 && freq <= 60.1) || (freq >= 49.9 && freq <= 50.1));
+      bool outOfRange =
+          !((freq >= 59.9 && freq <= 60.1) || (freq >= 49.9 && freq <= 50.1));
       if (outOfRange) {
         if (_anomalyActive[anomalyKey] != true) {
           await anomaliesBox.add({
-            'description': 'Frecuencia fuera de rango: ${freq.toStringAsFixed(2)} Hz',
+            'description':
+                'Frecuencia fuera de rango: ${freq.toStringAsFixed(2)} Hz',
             'timestamp': now,
             'type': 'frequency',
             'value': freq,
@@ -238,11 +285,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     if (tankLevel > 0.0) {
       final anomalyKey = 'tank_level_low';
       const lowThreshold = 0.15; // 15% del tanque
-      
+
       if (tankLevel <= lowThreshold) {
         if (_anomalyActive[anomalyKey] != true) {
           await anomaliesBox.add({
-            'description': 'Nivel del tanque bajo: ${(tankLevel * 100).toStringAsFixed(1)}% - Se recomienda no activar la bomba',
+            'description':
+                'Nivel del tanque bajo: ${(tankLevel * 100).toStringAsFixed(1)}% - Se recomienda no activar la bomba',
             'timestamp': now,
             'type': 'tank_level',
             'value': tankLevel,
@@ -267,7 +315,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   String getField(Map<String, dynamic> data, String key) {
     final value = data[key];
     if (value == null) return '--';
-    if (value is double) return value.toStringAsFixed(2);
+    if (value is double) {
+      // Formatear según el tipo de dato
+      if (key.contains('energia')) {
+        return value.toStringAsFixed(1); // Energía con 1 decimal
+      } else if (key.contains('voltaje') || key.contains('corriente')) {
+        return value.toStringAsFixed(2); // Voltaje/corriente con 2 decimales
+      } else if (key.contains('temperatura') || key.contains('humedad')) {
+        return value.toStringAsFixed(1); // Temperatura/humedad con 1 decimal
+      }
+      return value.toStringAsFixed(2); // Por defecto 2 decimales
+    }
     return value.toString();
   }
 
@@ -302,10 +360,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     // Solo muestra el estado textual
     Color borderColor;
     String status = batteryStatus;
-    if (status == "Cargada/Conectado") borderColor = Colors.green;
-    else if (status == "En buen estado") borderColor = Colors.amber;
-    else if (status == "Nivel bajo") borderColor = Colors.red;
-    else borderColor = Colors.grey;
+    if (status == "Cargada/Conectado")
+      borderColor = Colors.green;
+    else if (status == "En buen estado")
+      borderColor = Colors.amber;
+    else if (status == "Nivel bajo")
+      borderColor = Colors.red;
+    else
+      borderColor = Colors.grey;
 
     return Container(
       width: 100,
@@ -389,11 +451,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(label,
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                style:
+                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
                 textAlign: TextAlign.center),
             const SizedBox(height: 4),
             Text('$value $unit',
-                style: const TextStyle(fontSize: 14), textAlign: TextAlign.center),
+                style: const TextStyle(fontSize: 14),
+                textAlign: TextAlign.center),
           ],
         ),
       ),
@@ -424,7 +488,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.calendar_today_rounded, color: const Color(0xFF1D347A), size: 24),
+          Icon(Icons.calendar_today_rounded,
+              color: const Color(0xFF1D347A), size: 24),
           const SizedBox(width: 8),
           Text(
             dateStr,
@@ -491,7 +556,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     width: 120,
                     child: TextField(
                       controller: voltageController,
-                      keyboardType: TextInputType.numberWithOptions(decimal: true),
+                      keyboardType:
+                          TextInputType.numberWithOptions(decimal: true),
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
@@ -502,14 +568,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         filled: true,
                         fillColor: const Color(0xFFEDF0F6),
                         focusedBorder: OutlineInputBorder(
-                          borderSide: const BorderSide(color: Color(0xFF1D347A), width: 2),
+                          borderSide: const BorderSide(
+                              color: Color(0xFF1D347A), width: 2),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         enabledBorder: OutlineInputBorder(
-                          borderSide: const BorderSide(color: Color(0xFFB5B5B5), width: 1.1),
+                          borderSide: const BorderSide(
+                              color: Color(0xFFB5B5B5), width: 1.1),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                        contentPadding:
+                            const EdgeInsets.symmetric(vertical: 10),
                         isDense: true,
                       ),
                       onChanged: (val) {
@@ -524,7 +593,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   const SizedBox(height: 4),
                   const Text(
                     'Voltaje nominal (V)',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1D347A)),
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        color: Color(0xFF1D347A)),
                   ),
                 ],
               ),
@@ -536,7 +608,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     width: 120,
                     child: TextField(
                       controller: currentController,
-                      keyboardType: TextInputType.numberWithOptions(decimal: true),
+                      keyboardType:
+                          TextInputType.numberWithOptions(decimal: true),
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
@@ -547,14 +620,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         filled: true,
                         fillColor: const Color(0xFFEDF0F6),
                         focusedBorder: OutlineInputBorder(
-                          borderSide: const BorderSide(color: Color(0xFF1D347A), width: 2),
+                          borderSide: const BorderSide(
+                              color: Color(0xFF1D347A), width: 2),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         enabledBorder: OutlineInputBorder(
-                          borderSide: const BorderSide(color: Color(0xFFB5B5B5), width: 1.1),
+                          borderSide: const BorderSide(
+                              color: Color(0xFFB5B5B5), width: 1.1),
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                        contentPadding:
+                            const EdgeInsets.symmetric(vertical: 10),
                         isDense: true,
                       ),
                       onChanged: (val) {
@@ -569,7 +645,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   const SizedBox(height: 4),
                   const Text(
                     'Corriente nominal (A)',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1D347A)),
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        color: Color(0xFF1D347A)),
                   ),
                 ],
               ),
@@ -580,7 +659,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  Widget _buildDataCard(String title, String value, String unit, IconData icon, Color borderColor, Color textColor) {
+  Widget _buildDataCard(String title, String value, String unit, IconData icon,
+      Color borderColor, Color textColor) {
     return Card(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
@@ -605,7 +685,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ),
             const SizedBox(height: 4),
             Text(
-              '$value$unit',
+              '$value $unit',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
@@ -619,11 +699,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  String get runningTimeString {
-    final h = runningTime.inHours.toString().padLeft(2, '0');
-    final m = (runningTime.inMinutes % 60).toString().padLeft(2, '0');
-    final s = (runningTime.inSeconds % 60).toString().padLeft(2, '0');
-    return '$h:$m:$s';
+  void _toggleSystem() async {
+    final command = isSystemOn ? "OFF" : "ON";
+    await _mqttService.publishCommand(command);
+    setState(() {
+      isSystemOn = !isSystemOn;
+    });
   }
 
   @override
@@ -631,26 +712,34 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     final colorPrimary = Theme.of(context).colorScheme.primary;
     final colorAccent = Theme.of(context).colorScheme.secondary;
     final colorText = Theme.of(context).colorScheme.onBackground;
-    
-    // Obtener el nivel del tanque (0.0 a 1.0)
+
+    // Obtener el nivel del tanque usando capacidad configurada
     double tankLevel = 0.0;
-    final nivelStr = getField(globalNotifier.value, 'nivel_tanque');
-    if (nivelStr != '--') {
-      tankLevel = double.tryParse(nivelStr) ?? 0.0;
-      if (tankLevel > 1.0) tankLevel = tankLevel / 100.0;
-      if (tankLevel > 1.0) tankLevel = 1.0;
-      if (tankLevel < 0.0) tankLevel = 0.0;
+    final settingsBox = Hive.box('settings');
+    final tankCapacity = settingsBox.get('tankCapacity', defaultValue: 1000.0);
+
+    // Intentar obtener agua almacenada del ESP32
+    final aguaAlmacenada = globalNotifier.value['aguaAlmacenada'];
+    if (aguaAlmacenada != null && tankCapacity > 0) {
+      final aguaLitros = (aguaAlmacenada as num).toDouble();
+      tankLevel = (aguaLitros / tankCapacity).clamp(0.0, 1.0);
     }
-    // Si no existe la variable, intentar con 'nivelTanque' (simulación)
-    if (tankLevel == 0.0 && globalNotifier.value['nivelTanque'] != null) {
-      tankLevel = (globalNotifier.value['nivelTanque'] as num).toDouble();
-      if (tankLevel > 1.0) tankLevel = tankLevel / 100.0;
-      if (tankLevel > 1.0) tankLevel = 1.0;
-      if (tankLevel < 0.0) tankLevel = 0.0;
-    }
+
+    // Actualizar animación de la gota
     _controller.value = tankLevel;
 
+    // Mostrar pantalla de carga solo por un tiempo limitado
     if (!_firstLoadDone) {
+      // Forzar carga completada después de 10 segundos como respaldo
+      Future.delayed(const Duration(seconds: 10), () {
+        if (mounted && !_firstLoadDone) {
+          setState(() {
+            _firstLoadDone = true;
+          });
+          print('[INIT] Carga forzada completada después de timeout');
+        }
+      });
+
       return Scaffold(
         appBar: AppBar(
           title: const Text('Dropster'),
@@ -666,6 +755,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               Text(
                 'Cargando datos...',
                 style: TextStyle(color: colorText),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Si tarda demasiado, la app se cargará automáticamente',
+                style:
+                    TextStyle(color: colorText.withOpacity(0.7), fontSize: 12),
+                textAlign: TextAlign.center,
               ),
             ],
           ),
@@ -684,19 +780,74 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ),
         backgroundColor: colorPrimary,
         foregroundColor: Colors.white,
+        actions: [
+          // Indicador de estado de conexión MQTT
+          ValueListenableBuilder<bool>(
+            valueListenable: connectionNotifier,
+            builder: (context, isConnected, child) {
+              return Container(
+                margin: const EdgeInsets.only(right: 16),
+                child: Row(
+                  children: [
+                    Icon(
+                      isConnected ? Icons.wifi : Icons.wifi_off,
+                      color: isConnected ? Colors.green : Colors.red,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      isConnected ? 'MQTT' : 'Sin conexión',
+                      style: TextStyle(
+                        color: isConnected ? Colors.green : Colors.red,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
+            // Indicador de estado de conexión
+            if (globalNotifier.value.isEmpty)
+              Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange.withOpacity(0.3)),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.orange, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Esperando conexión con ESP32...',
+                      style: TextStyle(
+                        color: Colors.orange,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
             // Gota animada en el centro sin fondo
             Center(
               child: Column(
                 children: [
                   // Gota sin contenedor de fondo
                   ProfessionalWaterDrop(
-                    value: simulatedTankLevel,
+                    value: tankLevel,
                     size: 140,
                     primaryColor: colorAccent,
                     secondaryColor: colorPrimary,
@@ -705,7 +856,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   const SizedBox(height: 16),
                   // Nombre de la variable con estilo profesional
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 12),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
@@ -753,7 +905,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         const SizedBox(height: 8),
                         // Porcentaje debajo del nombre
                         Text(
-                          '${(simulatedTankLevel * 100).toStringAsFixed(1)}%',
+                          '${(tankLevel * 100).toStringAsFixed(1)}%',
                           style: TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.bold,
@@ -768,17 +920,98 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               ),
             ),
             const SizedBox(height: 24),
-            // Solo los bloques requeridos
+            // Botón de control ON/OFF
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 24),
+              child: Card(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side:
+                      BorderSide(color: colorAccent.withOpacity(0.3), width: 2),
+                ),
+                elevation: 8,
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Row(
+                    children: [
+                      Icon(
+                        isSystemOn ? Icons.power : Icons.power_off,
+                        color: isSystemOn ? colorAccent : Colors.red,
+                        size: 40,
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Text(
+                          isSystemOn ? 'Sistema Encendido' : 'Sistema Apagado',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: colorText,
+                          ),
+                        ),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor:
+                              isSystemOn ? Colors.red : colorAccent,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(15),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 24, vertical: 12),
+                          elevation: 4,
+                        ),
+                        onPressed: _toggleSystem,
+                        child: Text(
+                          isSystemOn ? 'Apagar' : 'Encender',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+            // Variables principales del sistema AWG (simplificadas)
             Wrap(
               spacing: 16,
               runSpacing: 16,
               alignment: WrapAlignment.center,
               children: [
-                _miniDataCard('Temperatura ambiente', getField(globalNotifier.value, 'temperature'), '°C', Icons.thermostat, colorAccent, colorText),
-                _miniDataCard('Humedad relativa', getField(globalNotifier.value, 'humidity'), '%', Icons.water, colorAccent, colorText),
-                _miniDataCard('Humedad absoluta', getField(globalNotifier.value, 'humidityAbs'), 'g/m³', Icons.grain, colorAccent, colorText),
-                _miniDataCard('Energía hoy', getField(globalNotifier.value, 'energyToday'), 'kWh', Icons.flash_on, colorAccent, colorText),
-                _miniDataCard('Tiempo encendido', runningTimeString, '', Icons.access_time, colorAccent, colorText),
+                // === DATOS PRINCIPALES ===
+                _miniDataCard(
+                    'Temperatura ambiente',
+                    getField(globalNotifier.value, 'temperaturaAmbiente'),
+                    '°C',
+                    Icons.thermostat,
+                    colorAccent,
+                    colorText),
+                _miniDataCard(
+                    'Humedad relativa',
+                    getField(globalNotifier.value, 'humedadRelativa'),
+                    '%',
+                    Icons.water,
+                    colorAccent,
+                    colorText),
+                _miniDataCard(
+                    'Humedad absoluta',
+                    getField(globalNotifier.value, 'humedadAbsoluta'),
+                    'g/m³',
+                    Icons.grain,
+                    colorAccent,
+                    colorText),
+                _miniDataCard(
+                    'Energía',
+                    getField(globalNotifier.value, 'energia'),
+                    'kWh',
+                    Icons.flash_on,
+                    colorAccent,
+                    colorText),
               ],
             ),
             const SizedBox(height: 24),
@@ -788,7 +1021,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
   }
 
-  Widget _miniDataCard(String title, String value, String unit, IconData icon, Color borderColor, Color textColor) {
+  Widget _miniDataCard(String title, String value, String unit, IconData icon,
+      Color borderColor, Color textColor) {
     return Card(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
@@ -804,13 +1038,20 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             const SizedBox(height: 8),
             Text(
               title,
-              style: TextStyle(fontSize: 15, color: textColor.withOpacity(0.9), fontWeight: FontWeight.w600),
+              style: TextStyle(
+                  fontSize: 15,
+                  color: textColor.withOpacity(0.9),
+                  fontWeight: FontWeight.w600),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 4),
             Text(
               '$value$unit',
-              style: TextStyle(fontSize: 22, color: borderColor, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+              style: TextStyle(
+                  fontSize: 22,
+                  color: borderColor,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.5),
               textAlign: TextAlign.center,
             ),
           ],
