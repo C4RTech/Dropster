@@ -11,7 +11,8 @@ import 'package:path_provider/path_provider.dart';
 import 'services/mqtt_hive.dart';
 import 'services/singleton_mqtt_service.dart';
 import 'services/notification_service.dart';
-import 'package:dropster/screens/dropster_home_screen.dart';
+import 'services/app_lifecycle_service.dart';
+import 'services/daily_report_service.dart';
 
 void main() {
   runApp(const DropsterApp());
@@ -65,7 +66,7 @@ class DropsterApp extends StatelessWidget {
         fontFamily: 'Roboto',
       ),
       themeMode: ThemeMode.system,
-      home: const MainScreen(),
+      home: const LoaderScreen(),
       debugShowCheckedModeBanner: false,
     );
   }
@@ -78,66 +79,288 @@ class LoaderScreen extends StatefulWidget {
   State<LoaderScreen> createState() => _LoaderScreenState();
 }
 
-class _LoaderScreenState extends State<LoaderScreen> {
+class _LoaderScreenState extends State<LoaderScreen>
+    with SingleTickerProviderStateMixin {
   bool _initialized = false;
+  String _loadingMessage = "Inicializando Dropster...";
+  late AnimationController _animationController;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _opacityAnimation;
 
   @override
   void initState() {
     super.initState();
+    _setupAnimations();
     _initApp();
   }
 
+  void _setupAnimations() {
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 2000),
+      vsync: this,
+    );
+
+    _scaleAnimation = Tween<double>(
+      begin: 0.8,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.elasticOut,
+    ));
+
+    _opacityAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeIn,
+    ));
+
+    _animationController.forward();
+  }
+
   Future<void> _initApp() async {
-    WidgetsFlutterBinding.ensureInitialized();
-    final dir = await getApplicationDocumentsDirectory();
-    await Hive.initFlutter(dir.path);
-    await MqttHiveService.initHive();
-
-    // Inicializar servicio de notificaciones
-    print('[APP INIT] Inicializando servicio de notificaciones...');
     try {
-      await NotificationService().initialize();
-      final hasPermission = await NotificationService().checkPermissions();
-      if (!hasPermission) {
-        await NotificationService().requestPermissions();
+      // Paso 1: Inicializar Flutter binding
+      setState(() {
+        _loadingMessage = "Preparando aplicación...";
+      });
+      WidgetsFlutterBinding.ensureInitialized();
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // Paso 2: Inicializar Hive
+      setState(() {
+        _loadingMessage = "Configurando base de datos...";
+      });
+      final dir = await getApplicationDocumentsDirectory();
+      await Hive.initFlutter(dir.path);
+      await MqttHiveService.initHive();
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // Paso 3: Inicializar servicio de notificaciones
+      setState(() {
+        _loadingMessage = "Configurando notificaciones...";
+      });
+      print('[APP INIT] Inicializando servicio de notificaciones...');
+      try {
+        await NotificationService().initialize();
+        final hasPermission = await NotificationService().checkPermissions();
+        if (!hasPermission) {
+          await NotificationService().requestPermissions();
+        }
+        print('[APP INIT] Servicio de notificaciones inicializado');
+      } catch (e) {
+        print('[APP INIT] Error inicializando notificaciones: $e');
       }
-      print('[APP INIT] Servicio de notificaciones inicializado');
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // Inicializar servicio de reportes diarios
+      setState(() {
+        _loadingMessage = "Configurando reportes diarios...";
+      });
+      print('[APP INIT] Inicializando servicio de reportes diarios...');
+      try {
+        await DailyReportService().initialize();
+        // Cargar configuración de reportes diarios
+        final settingsBox = await Hive.openBox('settings');
+        final dailyReportEnabled = settingsBox.get('dailyReportEnabled', defaultValue: false);
+        if (dailyReportEnabled) {
+          final hour = settingsBox.get('dailyReportHour', defaultValue: 20);
+          final minute = settingsBox.get('dailyReportMinute', defaultValue: 0);
+          final reportTime = TimeOfDay(hour: hour, minute: minute);
+          await DailyReportService().scheduleDailyReport(reportTime, true);
+          print('[APP INIT] Reporte diario programado para ${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}');
+        }
+        print('[APP INIT] Servicio de reportes diarios inicializado');
+      } catch (e) {
+        print('[APP INIT] Error inicializando reportes diarios: $e');
+      }
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      // Paso 4: Finalización
+      setState(() {
+        _loadingMessage = "¡Listo para comenzar!";
+      });
+      await Future.delayed(const Duration(milliseconds: 800));
+
+      print('[APP INIT] Inicialización básica completada');
+
+      setState(() {
+        _initialized = true;
+      });
     } catch (e) {
-      print('[APP INIT] Error inicializando notificaciones: $e');
+      print('[APP INIT] Error durante inicialización: $e');
+      setState(() {
+        _loadingMessage = "Error de inicialización";
+      });
+      // En caso de error, esperar un poco y continuar
+      await Future.delayed(const Duration(seconds: 2));
+      setState(() {
+        _initialized = true;
+      });
     }
+  }
 
-    // La conexión MQTT se inicializará en MainScreen para evitar duplicaciones
-    print('[APP INIT] Inicialización básica completada');
-
-    setState(() {
-      _initialized = true;
-    });
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     if (!_initialized) {
       return Scaffold(
-        backgroundColor: const Color(0xFF1D347A),
-        body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: const [
-              CircularProgressIndicator(color: Colors.white),
-              SizedBox(height: 16),
-              Text(
-                "Cargando...",
-                style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold),
-              ),
-            ],
+        body: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Color(0xFF155263), // Primary color
+                Color(0xFF0c2f39), // Dark background
+                Color(0xFF1e758d), // Surface color
+              ],
+              stops: [0.0, 0.6, 1.0],
+            ),
+          ),
+          child: Center(
+            child: AnimatedBuilder(
+              animation: _animationController,
+              builder: (context, child) {
+                return Transform.scale(
+                  scale: _scaleAnimation.value,
+                  child: Opacity(
+                    opacity: _opacityAnimation.value,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Logo/Icono de la app
+                        Container(
+                          width: 120,
+                          height: 120,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                Color(0xFF00CFC8), // Secondary color
+                                Color(0xFF155263), // Primary color
+                              ],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF00CFC8).withOpacity(0.3),
+                                blurRadius: 20,
+                                spreadRadius: 5,
+                              ),
+                            ],
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Image.asset(
+                              'lib/assets/images/Dropster_simbolo.png',
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 40),
+
+                        // Título de la app
+                        const Text(
+                          "DROPSTER",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 32,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 2,
+                            shadows: [
+                              Shadow(
+                                color: Color(0xFF00CFC8),
+                                blurRadius: 10,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 8),
+
+                        // Subtítulo
+                        Text(
+                          "Sistema de Monitoreo Inteligente",
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.8),
+                            fontSize: 16,
+                            fontWeight: FontWeight.w300,
+                          ),
+                        ),
+
+                        const SizedBox(height: 60),
+
+                        // Indicador de carga personalizado
+                        Container(
+                          width: 200,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(2),
+                            child: LinearProgressIndicator(
+                              backgroundColor: Colors.transparent,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                const Color(0xFF00CFC8).withOpacity(0.8),
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 30),
+
+                        // Mensaje de carga
+                        AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 300),
+                          child: Text(
+                            _loadingMessage,
+                            key: ValueKey<String>(_loadingMessage),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w400,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+
+                        const SizedBox(height: 20),
+
+                        // Indicador de progreso circular
+                        SizedBox(
+                          width: 40,
+                          height: 40,
+                          child: CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              const Color(0xFF00CFC8).withOpacity(0.8),
+                            ),
+                            strokeWidth: 3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
           ),
         ),
       );
     }
-    // Cuando termina la carga, muestra la app real
+
+    // Cuando termina la carga, muestra la app real con transición suave
     return const MainScreen();
   }
 }
@@ -167,6 +390,10 @@ class _MainScreenState extends State<MainScreen> {
   void initState() {
     super.initState();
     _initializeApp();
+    // Inicializar servicio de ciclo de vida
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      AppLifecycleService().initialize(context);
+    });
   }
 
   Future<void> _initializeApp() async {

@@ -3,7 +3,6 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:io' show Platform;
-import 'dart:developer' as developer;
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -246,11 +245,33 @@ class NotificationService {
 
   /// Procesar datos MQTT y detectar anomalías
   Future<void> processSensorData(Map<String, dynamic> sensorData) async {
+    debugPrint('[NOTIFICATION DEBUG] 🔍 Procesando datos de sensores para notificaciones...');
+    
     final settingsBox = await Hive.openBox('settings');
     final showNotifications =
         settingsBox.get('showNotifications', defaultValue: true);
 
-    if (!showNotifications) return;
+    if (!showNotifications) {
+      debugPrint('[NOTIFICATION DEBUG] ⚠️ Notificaciones deshabilitadas en configuración');
+      return;
+    }
+    
+    debugPrint('[NOTIFICATION DEBUG] ✅ Notificaciones habilitadas, verificando umbrales...');
+
+    // Obtener umbrales configurables
+    final tankFullEnabled =
+        settingsBox.get('tankFullEnabled', defaultValue: true);
+    final voltageLowEnabled =
+        settingsBox.get('voltageLowEnabled', defaultValue: true);
+    final humidityLowEnabled =
+        settingsBox.get('humidityLowEnabled', defaultValue: true);
+
+    final tankFullThreshold =
+        settingsBox.get('tankFullThreshold', defaultValue: 90.0);
+    final voltageLowThreshold =
+        settingsBox.get('voltageLowThreshold', defaultValue: 100.0);
+    final humidityLowThreshold =
+        settingsBox.get('humidityLowThreshold', defaultValue: 30.0);
 
     // Verificar temperatura alta
     final tempAmbiente = sensorData['temperaturaAmbiente'];
@@ -260,25 +281,51 @@ class NotificationService {
       await _showTemperatureAlert(tempAmbiente.toDouble());
     }
 
-    // Verificar tanque lleno usando capacidad configurada
-    final aguaAlmacenada = sensorData['aguaAlmacenada'];
-    final tankCapacity = settingsBox.get('tankCapacity', defaultValue: 1000.0);
+    // Verificar tanque lleno usando umbral configurable
+    if (tankFullEnabled) {
+      final aguaAlmacenada = sensorData['aguaAlmacenada'];
+      final tankCapacity =
+          settingsBox.get('tankCapacity', defaultValue: 1000.0);
 
-    if (aguaAlmacenada != null && aguaAlmacenada is num && tankCapacity > 0) {
-      final aguaLitros = aguaAlmacenada.toDouble();
-      final capacidadLitros = tankCapacity.toDouble();
+      if (aguaAlmacenada != null && aguaAlmacenada is num && tankCapacity > 0) {
+        final aguaLitros = aguaAlmacenada.toDouble();
+        final capacidadLitros = tankCapacity.toDouble();
 
-      // Calcular porcentaje de llenado
-      final porcentajeLlenado = (aguaLitros / capacidadLitros) * 100.0;
+        // Calcular porcentaje de llenado
+        final porcentajeLlenado = (aguaLitros / capacidadLitros) * 100.0;
+        
+        debugPrint('[NOTIFICATION DEBUG] 💧 Verificando tanque: ${aguaLitros}L/${capacidadLitros}L (${porcentajeLlenado.toStringAsFixed(1)}%) - umbral: ${tankFullThreshold}%');
 
-      // Mostrar alerta si está por encima del 95% de capacidad
-      if (porcentajeLlenado >= 95.0) {
-        await _showTankFullAlert(
-            aguaLitros, capacidadLitros, porcentajeLlenado);
+        // Mostrar alerta si supera el umbral configurado
+        if (porcentajeLlenado >= tankFullThreshold) {
+          debugPrint('[NOTIFICATION DEBUG] 🚨 ALERTA: Tanque lleno detectado!');
+          await _showTankFullAlert(
+              aguaLitros, capacidadLitros, porcentajeLlenado);
+        }
       }
     }
 
-    // Verificar batería baja
+    // Verificar voltaje bajo usando umbral configurable
+    if (voltageLowEnabled) {
+      final voltaje = sensorData['voltaje'];
+      debugPrint('[NOTIFICATION DEBUG] ⚡ Verificando voltaje: ${voltaje}V (umbral: ${voltageLowThreshold}V)');
+      if (voltaje != null && voltaje is num && voltaje < voltageLowThreshold) {
+        debugPrint('[NOTIFICATION DEBUG] 🚨 ALERTA: Voltaje bajo detectado!');
+        await _showVoltageLowAlert(voltaje.toDouble(), voltageLowThreshold);
+      }
+    }
+
+    // Verificar humedad baja usando umbral configurable
+    if (humidityLowEnabled) {
+      final humedad = sensorData['humedadRelativa'];
+      debugPrint('[NOTIFICATION DEBUG] 💨 Verificando humedad: ${humedad}% (umbral: ${humidityLowThreshold}%)');
+      if (humedad != null && humedad is num && humedad < humidityLowThreshold) {
+        debugPrint('[NOTIFICATION DEBUG] 🚨 ALERTA: Humedad baja detectada!');
+        await _showHumidityLowAlert(humedad.toDouble(), humidityLowThreshold);
+      }
+    }
+
+    // Verificar batería baja (mantiene umbral fijo)
     final bateria = sensorData['bateria'];
     if (bateria != null && bateria is num && bateria < BATTERY_LOW_THRESHOLD) {
       await _showBatteryLowAlert(bateria.toDouble());
@@ -345,6 +392,48 @@ class NotificationService {
       'Batería Baja',
       'Voltaje de batería: ${batteryVoltage.toStringAsFixed(2)}V',
       'battery_low',
+    );
+  }
+
+  /// Mostrar alerta de voltaje bajo
+  Future<void> _showVoltageLowAlert(double voltage, double threshold) async {
+    const title = '⚡ ¡VOLTAJE BAJO!';
+    final body = 'Voltaje detectado: ${voltage.toStringAsFixed(0)}V\n'
+        'Umbral configurado: ${threshold.toStringAsFixed(0)}V\n'
+        'Verifique la alimentación eléctrica o el AWG.';
+
+    await showPushNotification(
+      title: title,
+      body: body,
+      payload: 'voltage_low',
+    );
+
+    // Guardar en anomalías
+    await saveNotification(
+      'Voltaje Bajo Detectado',
+      'Voltaje: ${voltage.toStringAsFixed(0)}V (Umbral: ${threshold.toStringAsFixed(0)}V)',
+      'voltage_low',
+    );
+  }
+
+  /// Mostrar alerta de humedad baja
+  Future<void> _showHumidityLowAlert(double humidity, double threshold) async {
+    const title = '💨 ¡HUMEDAD BAJA!';
+    final body = 'Humedad relativa: ${humidity.toStringAsFixed(1)}%\n'
+        'Umbral configurado: ${threshold.toStringAsFixed(1)}%\n'
+        'La eficiencia del sistema puede verse afectada.';
+
+    await showPushNotification(
+      title: title,
+      body: body,
+      payload: 'humidity_low',
+    );
+
+    // Guardar en anomalías
+    await saveNotification(
+      'Humedad Baja Detectada',
+      'Humedad: ${humidity.toStringAsFixed(1)}% (Umbral: ${threshold.toStringAsFixed(1)}%)',
+      'humidity_low',
     );
   }
 

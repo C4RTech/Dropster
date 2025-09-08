@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:hive/hive.dart';
 import 'dart:async';
+import 'dart:math' as math;
 import '../services/singleton_mqtt_service.dart';
 import 'dart:collection';
 import 'package:intl/intl.dart';
@@ -17,6 +18,7 @@ class _GraphScreenState extends State<GraphScreen> {
   bool isLoading = false;
   DateTimeRange? selectedRange;
   String _message = "";
+  String _timePeriod = "tiempo_real"; // tiempo_real, dia, semana, mes
 
   final String dataBoxName = 'energyData';
   int realTimeSampleCount = 20;
@@ -98,6 +100,46 @@ class _GraphScreenState extends State<GraphScreen> {
     }
   }
 
+  DateTimeRange? _calculateTimeRange() {
+    final now = DateTime.now();
+
+    switch (_timePeriod) {
+      case "tiempo_real":
+        // Últimas 2 horas para tiempo real
+        return DateTimeRange(
+          start: now.subtract(Duration(hours: 2)),
+          end: now,
+        );
+      case "dia":
+        // Día completo actual
+        final startOfDay = DateTime(now.year, now.month, now.day);
+        return DateTimeRange(
+          start: startOfDay,
+          end: startOfDay.add(Duration(days: 1)),
+        );
+      case "semana":
+        // Semana completa (desde lunes hasta domingo)
+        final monday = now.subtract(Duration(days: now.weekday - 1));
+        final startOfWeek = DateTime(monday.year, monday.month, monday.day);
+        return DateTimeRange(
+          start: startOfWeek,
+          end: startOfWeek.add(Duration(days: 7)),
+        );
+      case "mes":
+        // Mes completo actual
+        final startOfMonth = DateTime(now.year, now.month, 1);
+        final nextMonth = now.month == 12
+            ? DateTime(now.year + 1, 1, 1)
+            : DateTime(now.year, now.month + 1, 1);
+        return DateTimeRange(
+          start: startOfMonth,
+          end: nextMonth,
+        );
+      default:
+        return null;
+    }
+  }
+
   Future<void> _loadSampleCount() async {
     if (!Hive.isBoxOpen(settingsBoxName)) {
       await Hive.openBox(settingsBoxName);
@@ -118,39 +160,113 @@ class _GraphScreenState extends State<GraphScreen> {
   }
 
   Future<void> _loadInitialData() async {
+    print('[GRAPH DEBUG] 🔄 Iniciando carga inicial de datos...');
     setState(() {
       isLoading = true;
     });
-    _allData = await _getDataFromHive(range: selectedRange);
-    setState(() {
-      isLoading = false;
-    });
+
+    try {
+      // Calcular rango basado en el período seleccionado
+      DateTimeRange? range = _calculateTimeRange();
+      _allData = await _getDataFromHive(range: range);
+      print('[GRAPH DEBUG] ✅ Datos cargados: ${_allData.length} registros');
+
+      // Si no hay datos, crear datos de ejemplo para testing
+      if (_allData.isEmpty && _timePeriod == "tiempo_real") {
+        print(
+            '[GRAPH DEBUG] ⚠️ No hay datos reales, creando datos de ejemplo...');
+        _allData = _createSampleData();
+        print(
+            '[GRAPH DEBUG] ✅ Datos de ejemplo creados: ${_allData.length} registros');
+      }
+
+      // Log detallado de los primeros registros
+      if (_allData.isNotEmpty) {
+        print('[GRAPH DEBUG] 📊 Primer registro: ${_allData.first}');
+        print('[GRAPH DEBUG] 📊 Último registro: ${_allData.last}');
+      }
+
+      setState(() {
+        isLoading = false;
+      });
+
+      print('[GRAPH DEBUG] ✅ Carga inicial completada');
+    } catch (e) {
+      print('[GRAPH DEBUG] ❌ Error en carga inicial: $e');
+      setState(() {
+        isLoading = false;
+        _message = 'Error cargando datos: $e';
+      });
+    }
   }
 
   Future<List<Map<String, dynamic>>> _getDataFromHive(
       {DateTimeRange? range}) async {
-    Box<Map> box;
-    if (Hive.isBoxOpen(dataBoxName)) {
-      box = Hive.box<Map>(dataBoxName);
-    } else {
-      box = await Hive.openBox<Map>(dataBoxName);
-    }
-    final all = box.values
-        .whereType<Map>()
-        .map((m) => Map<String, dynamic>.from(m))
-        .toList();
-    if (all.isEmpty) return [];
-    all.sort((a, b) => _getTimestamp(a).compareTo(_getTimestamp(b)));
-    if (range == null) {
-      if (isRealTime && all.length > realTimeSampleCount) {
-        return all.sublist(all.length - realTimeSampleCount);
+    print('[GRAPH DEBUG] 🔍 Obteniendo datos de Hive...');
+
+    try {
+      Box<Map> box;
+      if (Hive.isBoxOpen(dataBoxName)) {
+        box = Hive.box<Map>(dataBoxName);
+        print('[GRAPH DEBUG] 📦 Usando caja abierta: $dataBoxName');
+      } else {
+        box = await Hive.openBox<Map>(dataBoxName);
+        print('[GRAPH DEBUG] 📦 Abriendo caja: $dataBoxName');
       }
-      return all;
+
+      final rawData = box.values.toList();
+      print('[GRAPH DEBUG] 📊 Datos crudos en Hive: ${rawData.length}');
+
+      final all = rawData
+          .whereType<Map>()
+          .map((m) => Map<String, dynamic>.from(m))
+          .toList();
+
+      print(
+          '[GRAPH DEBUG] 📊 Datos válidos después de filtrado: ${all.length}');
+
+      if (all.isEmpty) {
+        print('[GRAPH DEBUG] ⚠️ No hay datos en Hive');
+        return [];
+      }
+
+      // Ordenar por timestamp
+      all.sort((a, b) => _getTimestamp(a).compareTo(_getTimestamp(b)));
+      print('[GRAPH DEBUG] 📊 Datos ordenados por timestamp');
+
+      if (range == null) {
+        if (isRealTime && all.length > realTimeSampleCount) {
+          final result = all.sublist(all.length - realTimeSampleCount);
+          print(
+              '[GRAPH DEBUG] 📊 Modo tiempo real: ${result.length} muestras de ${all.length}');
+          return result;
+        }
+        print(
+            '[GRAPH DEBUG] 📊 Modo tiempo real completo: ${all.length} muestras');
+        return all;
+      }
+
+      // Filtrar por rango de fechas
+      final filtered = all.where((item) {
+        final t = _parseTimestamp(item);
+        if (t == null) {
+          print('[GRAPH DEBUG] ⚠️ Timestamp inválido en item: $item');
+          return false;
+        }
+        final inRange = !t.isBefore(range.start) && !t.isAfter(range.end);
+        if (inRange) {
+          print('[GRAPH DEBUG] ✅ Item en rango: ${t.toString()}');
+        }
+        return inRange;
+      }).toList();
+
+      print(
+          '[GRAPH DEBUG] 📊 Datos filtrados por rango: ${filtered.length} de ${all.length}');
+      return filtered;
+    } catch (e) {
+      print('[GRAPH DEBUG] ❌ Error obteniendo datos de Hive: $e');
+      return [];
     }
-    return all.where((item) {
-      final t = _parseTimestamp(item);
-      return t != null && !t.isBefore(range.start) && !t.isAfter(range.end);
-    }).toList();
   }
 
   int _getTimestamp(Map<String, dynamic> item) {
@@ -281,11 +397,17 @@ class _GraphScreenState extends State<GraphScreen> {
             '¿Estás seguro de que deseas eliminar todos los datos almacenados?'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: Text('Cancelar')),
-          TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: Text('Borrar')),
+            onPressed: () => Navigator.pop(context, false),
+            child:
+                const Text('Cancelar', style: TextStyle(color: Colors.white)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context, true);
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Borrar', style: TextStyle(color: Colors.white)),
+          ),
         ],
       ),
     );
@@ -314,25 +436,202 @@ class _GraphScreenState extends State<GraphScreen> {
     );
   }
 
+  /// Función para forzar recarga de datos
+  Future<void> _forceRefreshData() async {
+    print('[GRAPH DEBUG] 🔄 Forzando recarga de datos...');
+
+    setState(() {
+      isLoading = true;
+      _message = "";
+    });
+
+    try {
+      // Recargar datos de Hive
+      _allData = await _getDataFromHive(range: selectedRange);
+
+      // Si estamos en tiempo real, intentar obtener datos del notifier actual
+      if (isRealTime && _globalNotifier.value.isNotEmpty) {
+        print('[GRAPH DEBUG] 🔄 Actualizando con datos del notifier...');
+        final currentData = _globalNotifier.value;
+        if (currentData['timestamp'] != null) {
+          _onNewRealTimeData(currentData);
+        }
+      }
+
+      setState(() {
+        isLoading = false;
+      });
+
+      print('[GRAPH DEBUG] ✅ Recarga forzada completada');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Datos recargados: ${_allData.length} registros'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      print('[GRAPH DEBUG] ❌ Error en recarga forzada: $e');
+      setState(() {
+        isLoading = false;
+        _message = 'Error recargando datos: $e';
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error recargando datos'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   void _onNewRealTimeData(Map<String, dynamic> newData) {
     if (!isRealTime || !mounted) return;
+
+    // Validar que el nuevo dato tenga timestamp válido
+    final newTimestamp = _getTimestamp(newData);
+    if (newTimestamp <= 0) {
+      print(
+          '[GRAPH DEBUG] ⚠️ Nuevo dato rechazado: timestamp inválido ($newTimestamp)');
+      return;
+    }
+
+    // Validar que tenga al menos un campo de datos válido
+    final hasValidData = [
+      'energia',
+      'aguaAlmacenada',
+      'temperaturaAmbiente',
+      'humedadRelativa'
+    ].any((key) => newData.containsKey(key) && newData[key] != null);
+    if (!hasValidData) {
+      print(
+          '[GRAPH DEBUG] ⚠️ Nuevo dato rechazado: no tiene campos de datos válidos');
+      return;
+    }
+
     setState(() {
       final current = List<Map<String, dynamic>>.from(_allData);
       current.add(Map<String, dynamic>.from(newData));
+
+      // Ordenar por timestamp para asegurar consistencia
       current.sort((a, b) => _getTimestamp(a).compareTo(_getTimestamp(b)));
+
       // Eliminar duplicados de timestamp, conservando el último valor
       final map = LinkedHashMap<int, Map<String, dynamic>>();
       for (final item in current) {
         final ts = _getTimestamp(item);
-        map[ts] = item;
+        if (ts > 0) {
+          // Solo incluir timestamps válidos
+          map[ts] = item;
+        }
       }
       final deduped = map.values.toList();
+
+      // Limitar a la cantidad máxima de muestras
       if (deduped.length > realTimeSampleCount) {
         _allData = deduped.sublist(deduped.length - realTimeSampleCount);
+        print(
+            '[GRAPH DEBUG] 📊 Datos limitados a $realTimeSampleCount muestras más recientes');
       } else {
         _allData = deduped;
       }
+
+      print(
+          '[GRAPH DEBUG] ✅ Nuevo dato agregado. Total datos: ${_allData.length}');
     });
+  }
+
+  /// Función para detectar anomalías en los datos que podrían causar comportamientos extraños
+  void _detectDataAnomalies(List<FlSpot> spots, String seriesName) {
+    if (spots.length < 2) return;
+
+    print(
+        '[GRAPH DEBUG] 🔍 Analizando anomalías en serie: $seriesName (${spots.length} puntos)');
+
+    // 1. Detectar timestamps duplicados
+    final timestampCounts = <double, int>{};
+    for (final spot in spots) {
+      timestampCounts[spot.x] = (timestampCounts[spot.x] ?? 0) + 1;
+    }
+    final duplicates =
+        timestampCounts.entries.where((e) => e.value > 1).toList();
+    if (duplicates.isNotEmpty) {
+      print('[GRAPH DEBUG] ⚠️ Timestamps duplicados encontrados:');
+      for (final dup in duplicates) {
+        print('[GRAPH DEBUG]   - Timestamp ${dup.key}: ${dup.value} veces');
+      }
+    }
+
+    // 2. Detectar valores extremos
+    final values = spots.map((s) => s.y).toList();
+    final min = values.reduce((a, b) => a < b ? a : b);
+    final max = values.reduce((a, b) => a > b ? a : b);
+    final avg = values.reduce((a, b) => a + b) / values.length;
+
+    // Calcular desviación estándar
+    final variance =
+        values.map((v) => (v - avg) * (v - avg)).reduce((a, b) => a + b) /
+            values.length;
+    final stdDev = variance > 0 ? math.sqrt(variance) : 0.0;
+
+    // Detectar outliers (valores fuera de 3 desviaciones estándar)
+    final outliers = spots.where((spot) {
+      final deviation = (spot.y - avg).abs();
+      return deviation > (3 * stdDev);
+    }).toList();
+
+    if (outliers.isNotEmpty) {
+      print('[GRAPH DEBUG] ⚠️ Valores atípicos detectados en $seriesName:');
+      for (final outlier in outliers) {
+        final dt = DateTime.fromMillisecondsSinceEpoch(outlier.x.toInt());
+        print(
+            '[GRAPH DEBUG]   - ${dt.toString()}: ${outlier.y} (desviación: ${(outlier.y - avg).abs() / stdDev}σ)');
+      }
+    }
+
+    // 3. Detectar saltos temporales irregulares
+    final timeGaps = <double>[];
+    for (int i = 1; i < spots.length; i++) {
+      final gap = spots[i].x - spots[i - 1].x;
+      timeGaps.add(gap);
+    }
+
+    if (timeGaps.isNotEmpty) {
+      final avgGap = timeGaps.reduce((a, b) => a + b) / timeGaps.length;
+      final gapStdDev = timeGaps
+              .map((g) => (g - avgGap) * (g - avgGap))
+              .reduce((a, b) => a + b) /
+          timeGaps.length;
+      final gapStdDevSqrt = gapStdDev > 0 ? math.sqrt(gapStdDev) : 0.0;
+
+      final irregularGaps = <int>[];
+      for (int i = 0; i < timeGaps.length; i++) {
+        if ((timeGaps[i] - avgGap).abs() > (3 * gapStdDevSqrt)) {
+          irregularGaps.add(i);
+        }
+      }
+
+      if (irregularGaps.isNotEmpty) {
+        print('[GRAPH DEBUG] ⚠️ Saltos temporales irregulares en $seriesName:');
+        for (final idx in irregularGaps) {
+          final dt1 = DateTime.fromMillisecondsSinceEpoch(spots[idx].x.toInt());
+          final dt2 =
+              DateTime.fromMillisecondsSinceEpoch(spots[idx + 1].x.toInt());
+          final gapMinutes = timeGaps[idx] / (1000 * 60);
+          print(
+              '[GRAPH DEBUG]   - Entre ${dt1.toString()} y ${dt2.toString()}: ${gapMinutes.toStringAsFixed(1)} min');
+        }
+      }
+    }
+
+    // 4. Resumen de análisis
+    print('[GRAPH DEBUG] 📊 Resumen análisis $seriesName:');
+    print('[GRAPH DEBUG]   - Rango de valores: $min - $max');
+    print('[GRAPH DEBUG]   - Promedio: ${avg.toStringAsFixed(2)}');
+    print(
+        '[GRAPH DEBUG]   - Desviación estándar: ${stdDev.toStringAsFixed(2)}');
+    print('[GRAPH DEBUG]   - Duplicados: ${duplicates.length}');
+    print('[GRAPH DEBUG]   - Valores atípicos: ${outliers.length}');
   }
 
   void _initRealTimeListener() {
@@ -369,9 +668,16 @@ class _GraphScreenState extends State<GraphScreen> {
 
   void _handleGlobalNotifierChange() {
     if (!isRealTime || !mounted) return;
+
     final data = _globalNotifier.value;
+    print('[GRAPH DEBUG] 📡 Notifier cambió: ${data.keys.length} keys');
+
     if (data.isNotEmpty && data['timestamp'] != null) {
+      print(
+          '[GRAPH DEBUG] 📡 Datos válidos recibidos, actualizando gráfica...');
       _onNewRealTimeData(data);
+    } else {
+      print('[GRAPH DEBUG] ⚠️ Datos inválidos o sin timestamp');
     }
   }
 
@@ -465,6 +771,8 @@ class _GraphScreenState extends State<GraphScreen> {
   }
 
   Widget _buildEnhancedGraph(_MultiGraphGroup group) {
+    print('[GRAPH DEBUG] 📈 Construyendo gráfica para: ${group.title}');
+
     final groupIndex = _multiGraphGroups.indexOf(group);
     group.selected ??= List.filled(group.keys.length, true);
 
@@ -473,50 +781,123 @@ class _GraphScreenState extends State<GraphScreen> {
     List<Color> enabledColors = [];
     int minSpots = 0;
 
+    print(
+        '[GRAPH DEBUG] 📊 Procesando ${group.keys.length} series para ${group.title}');
+
     for (int i = 0; i < group.keys.length; i++) {
-      if (!(group.selected![i])) continue;
+      if (!(group.selected![i])) {
+        print('[GRAPH DEBUG] ⚠️ Serie ${group.seriesTitles[i]} deshabilitada');
+        continue;
+      }
+
       final key = group.keys[i];
       final color = group.colors[i];
       final title = group.seriesTitles[i];
 
+      print('[GRAPH DEBUG] 🔍 Procesando serie: $title (key: $key)');
+
       final source = _allData.where((e) => e[key] != null).toList();
+      print(
+          '[GRAPH DEBUG] 📊 Datos con key "$key": ${source.length} de ${_allData.length}');
 
       List<FlSpot> spots = source
           .map((entry) {
             final time = _parseTimestamp(entry);
             final y = (entry[key] as num?)?.toDouble();
-            if (time == null || y == null) return null;
-            return FlSpot(time.millisecondsSinceEpoch.toDouble(), y);
+
+            // Validaciones exhaustivas
+            if (time == null) {
+              print(
+                  '[GRAPH DEBUG] ⚠️ Timestamp null para $key en entry: $entry');
+              return null;
+            }
+            if (y == null) {
+              print('[GRAPH DEBUG] ⚠️ Valor null para $key en entry: $entry');
+              return null;
+            }
+            if (y.isNaN || y.isInfinite) {
+              print(
+                  '[GRAPH DEBUG] ⚠️ Valor inválido (NaN/Infinite) para $key: $y');
+              return null;
+            }
+            if (y < -1000000 || y > 1000000) {
+              // Rango razonable
+              print('[GRAPH DEBUG] ⚠️ Valor fuera de rango para $key: $y');
+              return null;
+            }
+
+            final timestamp = time.millisecondsSinceEpoch.toDouble();
+            if (timestamp <= 0) {
+              print(
+                  '[GRAPH DEBUG] ⚠️ Timestamp inválido (<=0) para $key: $timestamp');
+              return null;
+            }
+
+            return FlSpot(timestamp, y);
           })
           .where((e) => e != null)
           .cast<FlSpot>()
           .toList();
 
-      // Elimina duplicados de timestamp en tiempo real, conservando el último valor
-      if (isRealTime) {
-        final map = LinkedHashMap<double, FlSpot>();
-        for (final spot in spots) {
-          map[spot.x] = spot;
-        }
-        spots = map.values.toList();
-        if (spots.length > realTimeSampleCount) {
-          spots = spots.sublist(spots.length - realTimeSampleCount);
-        }
+      print('[GRAPH DEBUG] ✅ Spots generados para $title: ${spots.length}');
+
+      // === DEDUPLICACIÓN MEJORADA ===
+      // Eliminar duplicados de timestamp, conservando el último valor
+      final originalCount = spots.length;
+      final map = LinkedHashMap<double, FlSpot>();
+      for (final spot in spots) {
+        map[spot.x] =
+            spot; // Sobrescribe con el último valor para timestamp duplicado
       }
+      spots = map.values.toList();
+
+      // Verificar si había duplicados
+      if (spots.length != originalCount) {
+        print(
+            '[GRAPH DEBUG] ⚠️ Eliminados ${originalCount - spots.length} spots duplicados para $title');
+      }
+
+      // Limitar cantidad de spots en tiempo real
+      if (isRealTime && spots.length > realTimeSampleCount) {
+        spots = spots.sublist(spots.length - realTimeSampleCount);
+        print(
+            '[GRAPH DEBUG] 🔄 Tiempo real: ${spots.length} spots después de limitar muestras');
+      }
+
+      print('[GRAPH DEBUG] ✅ Spots finales para $title: ${spots.length}');
 
       if (minSpots == 0 || spots.length < minSpots) minSpots = spots.length;
 
       seriesSpots.add(spots);
       enabledTitles.add(title);
       enabledColors.add(color);
+
+      print('[GRAPH DEBUG] 📈 Serie $title agregada: ${spots.length} puntos');
+
+      // === DETECCIÓN DE ANOMALÍAS ===
+      if (spots.isNotEmpty) {
+        _detectDataAnomalies(spots, title);
+      }
     }
 
     List<double> xTicks = [];
     if (seriesSpots.isNotEmpty && seriesSpots[0].isNotEmpty) {
       xTicks = seriesSpots[0].map((e) => e.x).toList();
+      print('[GRAPH DEBUG] 📊 X ticks generados: ${xTicks.length}');
     }
 
-    final bool showChart = seriesSpots.any((lst) => lst.length >= 2);
+    // Permitir mostrar gráfica con al menos 1 punto si hay datos, pero preferir 2+ para mejor visualización
+    final hasAnyData = seriesSpots.any((lst) => lst.isNotEmpty);
+    final hasEnoughData = seriesSpots.any((lst) => lst.length >= 2);
+    final bool showChart = hasAnyData; // Cambiado para ser más flexible
+
+    print('[GRAPH DEBUG] 📊 ¿Mostrar gráfica? $showChart');
+    print('[GRAPH DEBUG] 📊   - Tiene datos: $hasAnyData');
+    print('[GRAPH DEBUG] 📊   - Datos suficientes (>=2): $hasEnoughData');
+    print(
+        '[GRAPH DEBUG] 📊   - Series con datos: ${seriesSpots.where((lst) => lst.isNotEmpty).length}');
+    print(
+        '[GRAPH DEBUG] 📊   - Puntos por serie: ${seriesSpots.map((lst) => lst.length).toList()}');
 
     // === NUEVO: calcular minY/maxY expandido con zoom ===
     double? minY, maxY;
@@ -537,6 +918,9 @@ class _GraphScreenState extends State<GraphScreen> {
         minY = minVal - (minVal.abs() * 0.25 * verticalZoomFactor + 1);
         maxY = maxVal + (maxVal.abs() * 0.25 * verticalZoomFactor + 1);
       }
+      print('[GRAPH DEBUG] 📊 Rango Y calculado: $minY - $maxY');
+    } else {
+      print('[GRAPH DEBUG] ⚠️ No hay valores Y para calcular rango');
     }
 
     return Card(
@@ -565,7 +949,8 @@ class _GraphScreenState extends State<GraphScreen> {
                     ),
                     child: Icon(
                       group.icon,
-                      color: Theme.of(context).colorScheme.primary,
+                      color:
+                          Color(0xFF64B5F6), // Azul de la pantalla de monitoreo
                       size: 28,
                     ),
                   ),
@@ -579,7 +964,8 @@ class _GraphScreenState extends State<GraphScreen> {
                           style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
-                            color: Theme.of(context).colorScheme.primary,
+                            color: Color(
+                                0xFF64B5F6), // Azul de la pantalla de monitoreo
                           ),
                         ),
                         if (group.unit.isNotEmpty)
@@ -612,14 +998,17 @@ class _GraphScreenState extends State<GraphScreen> {
                           leftTitles: AxisTitles(
                             sideTitles: SideTitles(
                               showTitles: true,
-                              reservedSize: 30,
+                              reservedSize:
+                                  45, // Más espacio para mejor legibilidad
                               getTitlesWidget: (value, meta) {
                                 return Text(
                                   group.unit.isNotEmpty
                                       ? _formatValueWithUnit(value, group.unit)
                                       : value.toStringAsFixed(0),
                                   style: TextStyle(
-                                      color: Colors.white, fontSize: 10),
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w500),
                                 );
                               },
                             ),
@@ -627,17 +1016,31 @@ class _GraphScreenState extends State<GraphScreen> {
                           bottomTitles: AxisTitles(
                             sideTitles: SideTitles(
                               showTitles: true,
-                              reservedSize: 40,
-                              interval: (xTicks.length > 1)
-                                  ? ((xTicks.last - xTicks.first) / 4)
-                                  : 1,
+                              reservedSize:
+                                  50, // Más espacio para mejor legibilidad
+                              interval: _calculateTimeInterval(xTicks),
                               getTitlesWidget: (value, meta) {
                                 final dt = DateTime.fromMillisecondsSinceEpoch(
                                     value.toInt());
+
+                                // Para datos históricos, mostrar fecha y hora
+                                if (!isRealTime && selectedRange != null) {
+                                  return Text(
+                                    "${dt.day}/${dt.month} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}",
+                                    style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w500),
+                                  );
+                                }
+
+                                // Para tiempo real, mostrar solo hora y minutos
                                 return Text(
-                                  "${dt.hour}:${dt.minute}:${dt.second}",
+                                  "${dt.hour}:${dt.minute.toString().padLeft(2, '0')}",
                                   style: TextStyle(
-                                      color: Colors.white, fontSize: 10),
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w500),
                                 );
                               },
                             ),
@@ -653,17 +1056,64 @@ class _GraphScreenState extends State<GraphScreen> {
                                 Border.all(color: Colors.black26, width: 0.5)),
                         lineBarsData: [
                           for (int i = 0; i < seriesSpots.length; i++)
-                            if (seriesSpots[i].length >= 2)
+                            if (seriesSpots[i]
+                                .isNotEmpty) // Cambiado para permitir series con al menos 1 punto
                               LineChartBarData(
                                 spots: seriesSpots[i],
-                                isCurved: true,
+                                isCurved: seriesSpots[i].length >=
+                                    2, // Solo curvar si hay suficientes puntos
                                 curveSmoothness: 0.4, // Más suavizado
                                 color: enabledColors[i],
-                                dotData: FlDotData(show: false), // No nudos
+                                dotData: FlDotData(
+                                    show: seriesSpots[i].length ==
+                                        1), // Mostrar puntos si solo hay 1
                                 belowBarData: BarAreaData(show: false),
                                 barWidth: 2.5,
                               ),
                         ],
+                        lineTouchData: LineTouchData(
+                          touchTooltipData: LineTouchTooltipData(
+                            tooltipBgColor: Colors.blueGrey.withOpacity(0.8),
+                            getTooltipItems: (List<LineBarSpot> touchedSpots) {
+                              return touchedSpots
+                                  .map((LineBarSpot touchedSpot) {
+                                final value = touchedSpot.y;
+                                // Mostrar valor con 2 decimales y unidad
+                                final displayValue = group.unit.isNotEmpty
+                                    ? "${value.toStringAsFixed(2)} ${group.unit}"
+                                    : value.toStringAsFixed(2);
+
+                                return LineTooltipItem(
+                                  displayValue,
+                                  TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12,
+                                  ),
+                                );
+                              }).toList();
+                            },
+                          ),
+                          handleBuiltInTouches: true,
+                          touchCallback: (FlTouchEvent event,
+                              LineTouchResponse? touchResponse) {
+                            if (event is FlTapUpEvent &&
+                                touchResponse != null &&
+                                touchResponse.lineBarSpots != null) {
+                              // Mostrar información adicional si es necesario
+                              for (final spot in touchResponse.lineBarSpots!) {
+                                final dt = DateTime.fromMillisecondsSinceEpoch(
+                                    spot.x.toInt());
+                                final timeStr = isRealTime
+                                    ? "${dt.hour}:${dt.minute.toString().padLeft(2, '0')}"
+                                    : "${dt.day}/${dt.month} ${dt.hour}:${dt.minute.toString().padLeft(2, '0')}";
+
+                                print(
+                                    '[GRAPH] 📊 Tocado punto: $timeStr, Valor: ${spot.y.toStringAsFixed(2)}');
+                              }
+                            }
+                          },
+                        ),
                         minX: xTicks.isNotEmpty ? xTicks.first : 0,
                         maxX: xTicks.isNotEmpty ? xTicks.last : 0,
                         minY: minY,
@@ -759,7 +1209,7 @@ class _GraphScreenState extends State<GraphScreen> {
               Text(
                 "Cantidad de muestras a mostrar: $realTimeSampleCount",
                 style: TextStyle(
-                  color: Color(0xFF1D347A),
+                  color: Colors.white,
                   fontWeight: FontWeight.bold,
                   fontSize: 16,
                 ),
@@ -794,16 +1244,16 @@ class _GraphScreenState extends State<GraphScreen> {
           Text(
             "Zoom vertical: ${(verticalZoomFactor * 100).toInt()}%",
             style: TextStyle(
-              color: Color(0xFF1D347A),
+              color: Colors.white,
               fontWeight: FontWeight.bold,
               fontSize: 16,
             ),
           ),
           Slider(
             value: verticalZoomFactor,
-            min: 0.2,
-            max: 75.0, // Hasta 1500%
-            divisions: 148,
+            min: 0.5, // Mínimo 50% (más zoom)
+            max: 10.0, // Máximo 1000% (menos zoom)
+            divisions: 95,
             label: "${(verticalZoomFactor * 100).toInt()}%",
             activeColor: Color(0xFF1D347A),
             onChanged: (value) {
@@ -821,14 +1271,18 @@ class _GraphScreenState extends State<GraphScreen> {
   Widget build(BuildContext context) {
     final colorPrimary = Theme.of(context).colorScheme.primary;
     final colorAccent = Theme.of(context).colorScheme.secondary;
-    final colorText = Theme.of(context).colorScheme.onBackground;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Gráficas en Tiempo Real'),
+        title: const Text('Gráficas'),
         backgroundColor: colorPrimary,
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _forceRefreshData,
+            tooltip: 'Recargar datos',
+          ),
           IconButton(
             icon: Icon(isRealTime ? Icons.access_time : Icons.calendar_today),
             onPressed: () {
@@ -875,39 +1329,23 @@ class _GraphScreenState extends State<GraphScreen> {
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                  // Selector de período de tiempo
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 4,
+                    runSpacing: 4,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: isRealTime ? Colors.green : Colors.blue,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              isRealTime
-                                  ? Icons.access_time
-                                  : Icons.calendar_today,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              isRealTime ? 'TIEMPO REAL' : 'HISTÓRICO',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                      _buildTimePeriodButton("Tiempo Real", "tiempo_real",
+                          Icons.access_time, Colors.green),
+                      _buildTimePeriodButton(
+                          "Día", "dia", Icons.today, Colors.blue),
+                      _buildTimePeriodButton("Semana", "semana",
+                          Icons.calendar_view_week, Colors.purple),
+                      _buildTimePeriodButton(
+                          "Mes", "mes", Icons.calendar_month, Colors.orange),
                     ],
                   ),
+                  const SizedBox(height: 12),
                   if (selectedRange != null && !isRealTime)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
@@ -996,34 +1434,177 @@ class _GraphScreenState extends State<GraphScreen> {
     );
   }
 
-  void _showFilterDialog() {
-    // Implementation of _showFilterDialog method
-  }
+  // Función para calcular el intervalo óptimo de tiempo para los títulos del eje X
+  double _calculateTimeInterval(List<double> xTicks) {
+    if (xTicks.length <= 1) return 1;
 
-  void _showSampleCountDialog() {
-    // Implementation of _showSampleCountDialog method
+    final range = xTicks.last - xTicks.first;
+    final timeRange = Duration(milliseconds: range.toInt());
+
+    // Intervalos específicos según el período seleccionado
+    switch (_timePeriod) {
+      case "tiempo_real":
+        // Para tiempo real, mostrar cada 5 minutos para mejor legibilidad
+        return Duration(minutes: 5).inMilliseconds.toDouble();
+
+      case "dia":
+        // Para día completo, mostrar cada hora (24 muestras)
+        return Duration(hours: 1).inMilliseconds.toDouble();
+
+      case "semana":
+        // Para semana completa, mostrar cada día (7 muestras)
+        return Duration(hours: 24).inMilliseconds.toDouble();
+
+      case "mes":
+        // Para mes completo, mostrar cada 2 días para mejor legibilidad
+        return Duration(hours: 48).inMilliseconds.toDouble();
+
+      default:
+        // Para otros casos, usar lógica anterior
+        if (timeRange.inMinutes < 60) {
+          return Duration(minutes: 5).inMilliseconds.toDouble();
+        }
+        if (timeRange.inHours < 24) {
+          return Duration(minutes: 30).inMilliseconds.toDouble();
+        }
+        if (timeRange.inHours < 168) {
+          return Duration(hours: 2).inMilliseconds.toDouble();
+        }
+        return Duration(hours: 24).inMilliseconds.toDouble();
+    }
   }
 
   // Función para formatear valores con unidades apropiadas
   String _formatValueWithUnit(double value, String unit) {
+    // Energía ya viene en Wh desde ESP32, no necesita conversión
+    double displayValue = value;
+    if (unit == "Wh") {
+      if (value > 0) {
+        print('[GRAPH DEBUG] Energía recibida: ${value}Wh (ya en Wh)');
+      }
+    }
+
     switch (unit) {
       case "Wh":
+        // Para energía en Wh, usar más decimales si el valor es muy pequeño
+        if (displayValue < 1.0 && displayValue > 0) {
+          return "${displayValue.toStringAsFixed(3)} $unit"; // 3 decimales para valores pequeños
+        } else {
+          return "${displayValue.toStringAsFixed(2)} $unit"; // 2 decimales para valores normales
+        }
       case "W":
-        return "${value.toStringAsFixed(1)} $unit";
+        return "${displayValue.toStringAsFixed(2)} $unit"; // Potencia con 2 decimales
       case "A":
       case "V":
       case "Hz":
-        return "${value.toStringAsFixed(2)} $unit";
+        return "${displayValue.toStringAsFixed(2)} $unit";
       case "°C":
-        return "${value.toStringAsFixed(1)}$unit";
+        return "${displayValue.toStringAsFixed(2)}$unit"; // Temperatura con 2 decimales
       case "%":
-        return "${value.toStringAsFixed(1)}$unit";
+        return "${displayValue.toStringAsFixed(2)}$unit"; // Humedad con 2 decimales
       case "L":
-        return "${value.toStringAsFixed(1)} $unit";
+        return "${displayValue.toStringAsFixed(2)} $unit"; // Volumen con 2 decimales
       case "hPa":
-        return "${value.toStringAsFixed(0)} $unit";
+        return "${displayValue.toStringAsFixed(2)} $unit"; // Presión con 2 decimales
       default:
-        return value.toStringAsFixed(2);
+        return displayValue.toStringAsFixed(2);
+    }
+  }
+
+  /// Función para crear datos de ejemplo cuando no hay datos reales
+  List<Map<String, dynamic>> _createSampleData() {
+    print('[GRAPH DEBUG] 🏗️ Creando datos de ejemplo para testing...');
+
+    final now = DateTime.now();
+    final sampleData = <Map<String, dynamic>>[];
+
+    // Crear datos para las últimas 2 horas con intervalos de 5 minutos
+    for (int i = 0; i < 24; i++) {
+      final timestamp =
+          now.subtract(Duration(minutes: i * 5)).millisecondsSinceEpoch;
+
+      sampleData.add({
+        'timestamp': timestamp,
+        'energia': 1500.0 + (i * 10), // Energía en Wh
+        'aguaAlmacenada': 500.0 + (i * 2), // Agua en L
+        'temperaturaAmbiente': 25.0 + (i * 0.1), // Temperatura en °C
+        'humedadRelativa': 60.0 + (i * 0.5), // Humedad en %
+      });
+    }
+
+    print(
+        '[GRAPH DEBUG] ✅ Datos de ejemplo creados: ${sampleData.length} registros');
+    return sampleData;
+  }
+
+  Widget _buildTimePeriodButton(
+      String label, String period, IconData icon, Color color) {
+    final isSelected = _timePeriod == period;
+    return ElevatedButton.icon(
+      icon: Icon(icon, size: 16),
+      label: Text(label),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: isSelected ? color : Colors.grey[700],
+        foregroundColor: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        elevation: isSelected ? 4 : 0,
+      ),
+      onPressed: () {
+        setState(() {
+          _timePeriod = period;
+          isRealTime = period == "tiempo_real";
+          selectedRange = null;
+        });
+        _loadInitialData();
+      },
+    );
+  }
+
+  Color _getPeriodColor() {
+    switch (_timePeriod) {
+      case "tiempo_real":
+        return Colors.green;
+      case "dia":
+        return Colors.blue;
+      case "semana":
+        return Colors.purple;
+      case "mes":
+        return Colors.orange;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _getPeriodIcon() {
+    switch (_timePeriod) {
+      case "tiempo_real":
+        return Icons.access_time;
+      case "dia":
+        return Icons.today;
+      case "semana":
+        return Icons.calendar_view_week;
+      case "mes":
+        return Icons.calendar_month;
+      default:
+        return Icons.schedule;
+    }
+  }
+
+  String _getPeriodText() {
+    switch (_timePeriod) {
+      case "tiempo_real":
+        return "TIEMPO REAL";
+      case "dia":
+        return "DÍA COMPLETO";
+      case "semana":
+        return "SEMANA COMPLETA";
+      case "mes":
+        return "MES COMPLETO";
+      default:
+        return "PERÍODO";
     }
   }
 }

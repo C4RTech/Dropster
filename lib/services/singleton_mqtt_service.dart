@@ -51,6 +51,12 @@ class SingletonMqttService {
     print(
         '[MQTT DEBUG] Conexión MQTT completada, estado: ${mqttClientService.isConnected}');
 
+    // Mostrar configuración de conexión
+    print('[MQTT DEBUG] Configuración MQTT:');
+    print('[MQTT DEBUG]   - Broker: ${mqttClientService.broker}');
+    print('[MQTT DEBUG]   - Puerto: ${mqttClientService.port}');
+    print('[MQTT DEBUG]   - Tópico: ${mqttClientService.topic}');
+
     // Actualizar estado de conexión
     connectionNotifier.value = mqttClientService.isConnected;
 
@@ -59,6 +65,16 @@ class SingletonMqttService {
 
     // Iniciar monitoreo del estado de conexión para UI
     _startConnectionStatusMonitoring();
+
+    // Agregar listener para debug de mensajes MQTT
+    print('[MQTT DEBUG] Agregando listener para debug de mensajes MQTT');
+    notifier.addListener(() {
+      final data = notifier.value;
+      if (data.containsKey('energia')) {
+        print(
+            '[MQTT LISTENER DEBUG] Energía actualizada en notifier: ${data['energia']}kWh');
+      }
+    });
   }
 
   /// Desconecta del broker MQTT
@@ -71,11 +87,16 @@ class SingletonMqttService {
 
   /// Inicia el monitoreo del estado de conexión
   void _startConnectionStatusMonitoring() {
-    _connectionStatusTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+    _connectionStatusTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       final currentStatus = mqttClientService.isConnected;
       if (connectionNotifier.value != currentStatus) {
         connectionNotifier.value = currentStatus;
-        print('[MQTT DEBUG] Estado de conexión cambió a: $currentStatus');
+        // Solo log cuando cambia el estado, no cada 3 segundos
+        debugPrint('[MQTT] Estado de conexión cambió a: $currentStatus');
+        if (!currentStatus) {
+          debugPrint(
+              '[MQTT] ⚠️ Conexión perdida detectada, intentando reconectar...');
+        }
       }
     });
   }
@@ -93,5 +114,34 @@ class SingletonMqttService {
   /// Actualización segura desde BLE: fusiona los datos y marca su origen.
   void updateWithBleData(Map<String, dynamic> data) {
     notifier.value = {...notifier.value, ...data, 'source': 'BLE'};
+  }
+
+  /// Configura el modo background/foreground para optimizar la conexión
+  void setBackgroundMode(bool isBackground) {
+    mqttClientService.setBackgroundMode(isBackground);
+  }
+
+  /// Método de debug para simular recepción de datos MQTT (para testing)
+  void simulateMqttData() {
+    print('[MQTT SIMULATION] Simulando recepción de datos MQTT...');
+
+    final simulatedData = {
+      'temperaturaAmbiente': 25.5,
+      'humedadRelativa': 65.0,
+      'aguaAlmacenada': 450.0,
+      'voltaje': 220.0,
+      'corriente': 2.5,
+      'potencia': 550.0,
+      'energia': 1250.75, // Este es el campo que faltaba
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'source': 'MQTT_SIMULATION'
+    };
+
+    print('[MQTT SIMULATION] Datos simulados: $simulatedData');
+
+    // Actualizar el notifier como si viniera de MQTT
+    notifier.value = {...notifier.value, ...simulatedData};
+
+    print('[MQTT SIMULATION] ✅ Datos simulados enviados al notifier');
   }
 }

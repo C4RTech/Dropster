@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
-import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'mqtt_hive.dart';
 import 'notification_service.dart';
@@ -27,11 +26,17 @@ class MqttService {
   MqttServerClient? client;
   Timer? _reconnectTimer;
   Timer? _connectionCheckTimer;
+  Timer? _pingTimer;
   bool _isReconnecting = false;
+  bool _isInBackground = false;
   int _reconnectAttempts = 0;
-  static const int _maxReconnectAttempts = 10;
-  static const Duration _baseReconnectInterval = Duration(seconds: 5);
+  DateTime? _lastMessageTime;
+  DateTime? _lastPingTime;
+  static const int _maxReconnectAttempts = 15;
+  static const Duration _baseReconnectInterval = Duration(seconds: 3);
   static const Duration _connectionCheckInterval = Duration(seconds: 10);
+  static const Duration _pingInterval = Duration(seconds: 30);
+  static const Duration _backgroundPingInterval = Duration(seconds: 60);
 
   /// Devuelve true si el cliente está conectado al broker
   bool get isConnected =>
@@ -40,6 +45,12 @@ class MqttService {
   /// Inicia el monitoreo de conexión para reconexión automática
   void startConnectionMonitoring() {
     _connectionCheckTimer = Timer.periodic(_connectionCheckInterval, (_) {
+      print(
+          '[MQTT STATUS] Estado de conexión: ${isConnected ? 'CONECTADO' : 'DESCONECTADO'}');
+      print('[MQTT STATUS] Broker: $broker:$port');
+      print('[MQTT STATUS] Topic: $topic');
+      print('[MQTT STATUS] Último mensaje: ${_lastMessageTime ?? 'Nunca'}');
+
       if (!isConnected && !_isReconnecting) {
         print('[MQTT DEBUG] Conexión perdida, intentando reconectar...');
         _attemptReconnect();
@@ -51,8 +62,66 @@ class MqttService {
   void stopConnectionMonitoring() {
     _connectionCheckTimer?.cancel();
     _reconnectTimer?.cancel();
+    _stopActivityMonitoring();
     _isReconnecting = false;
     _reconnectAttempts = 0;
+  }
+
+  /// Inicia el monitoreo de actividad para mantener la conexión viva
+  void _startActivityMonitoring() {
+    _pingTimer?.cancel();
+    final activityInterval =
+        _isInBackground ? _backgroundPingInterval : _pingInterval;
+    _pingTimer = Timer.periodic(activityInterval, (_) {
+      if (isConnected && client != null) {
+        // Verificar si ha pasado mucho tiempo sin mensajes
+        final now = DateTime.now();
+        final timeSinceLastMessage = _lastMessageTime != null
+            ? now.difference(_lastMessageTime!).inSeconds
+            : 0;
+
+        if (timeSinceLastMessage > 120) {
+          // 2 minutos sin mensajes
+          print(
+              '[MQTT DEBUG] Sin actividad por ${timeSinceLastMessage}s, verificando conexión...');
+          // Forzar verificación de conexión
+          _checkConnectionHealth();
+        }
+      }
+    });
+  }
+
+  /// Detiene el monitoreo de actividad
+  void _stopActivityMonitoring() {
+    _pingTimer?.cancel();
+    _pingTimer = null;
+  }
+
+  /// Verifica la salud de la conexión
+  void _checkConnectionHealth() {
+    if (!isConnected) {
+      print(
+          '[MQTT DEBUG] Conexión detectada como perdida, intentando reconectar...');
+      _attemptReconnect();
+    } else {
+      print('[MQTT DEBUG] Conexión saludable');
+    }
+  }
+
+  /// Configura el modo background/foreground
+  void setBackgroundMode(bool isBackground) {
+    if (_isInBackground != isBackground) {
+      _isInBackground = isBackground;
+      if (isBackground) {
+        print('[MQTT DEBUG] App en background - ajustando configuración');
+        _stopActivityMonitoring();
+        _startActivityMonitoring(); // Reinicia con intervalo de background
+      } else {
+        print('[MQTT DEBUG] App en foreground - optimizando configuración');
+        _stopActivityMonitoring();
+        _startActivityMonitoring(); // Reinicia con intervalo normal
+      }
+    }
   }
 
   /// Intenta reconectar al broker con backoff exponencial
@@ -192,8 +261,14 @@ class MqttService {
       client = MqttServerClient(brokerAddress, '');
       client!.port = brokerPort;
       client!.logging(on: false);
-      client!.keepAlivePeriod = 20;
-      client!.connectTimeoutPeriod = 10000; // 10 segundos timeout
+      client!.keepAlivePeriod =
+          60; // Aumentado a 60 segundos para mayor estabilidad
+      client!.connectTimeoutPeriod =
+          8000; // Reducido a 8 segundos para reconexión más rápida
+      client!.autoReconnect =
+          true; // Habilitar reconexión automática del cliente
+      client!.resubscribeOnAutoReconnect =
+          true; // Re-suscribirse automáticamente
 
       client!.connectionMessage = MqttConnectMessage()
           .withClientIdentifier(
@@ -214,6 +289,9 @@ class MqttService {
 
       // Configurar listener siempre, pero solo procesar datos si hay hiveService
       _setupMessageListener(hiveService);
+
+      // Iniciar monitoreo de actividad para mantener conexión viva
+      _startActivityMonitoring();
 
       return true;
     } catch (e) {
@@ -239,6 +317,9 @@ class MqttService {
         final topicReceived = c[0].topic;
         final payload =
             MqttPublishPayload.bytesToStringAsString(msg.payload.message);
+
+        // Actualizar timestamp del último mensaje
+        _lastMessageTime = DateTime.now();
 
         print(
             '[MQTT DEBUG] Mensaje recibido en tópico $topicReceived: $payload');
@@ -309,6 +390,23 @@ class MqttService {
     } catch (e) {
       print('[MQTT DEBUG] Error procesando datos para notificaciones: $e');
     }
+  }
+
+  /// Obtiene estadísticas de conexión para debugging
+  Map<String, dynamic> getConnectionStats() {
+    return {
+      'isConnected': isConnected,
+      'isReconnecting': _isReconnecting,
+      'reconnectAttempts': _reconnectAttempts,
+      'isInBackground': _isInBackground,
+      'lastMessageTime': _lastMessageTime?.toIso8601String(),
+      'timeSinceLastMessage': _lastMessageTime != null
+          ? DateTime.now().difference(_lastMessageTime!).inSeconds
+          : null,
+      'broker': broker,
+      'port': port,
+      'topic': topic,
+    };
   }
 
   /// Parsea los datos JSON del sensor desde el payload MQTT

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/singleton_mqtt_service.dart';
 
@@ -17,23 +16,7 @@ class _MonitorScreenState extends State<MonitorScreen>
   ValueNotifier<Map<String, dynamic>> get globalNotifier =>
       SingletonMqttService().notifier;
 
-  // Valores por defecto cuando no hay datos
-  final Map<String, dynamic> _defaultValues = {
-    'temperaturaAmbiente': 0.0,
-    'presionAtmosferica': 0.0,
-    'humedadRelativa': 0.0,
-    'humedadAbsoluta': 0.0,
-    'puntoRocio': 0.0,
-    'aguaAlmacenada': 0.0,
-    'temperaturaEvaporador': 0.0,
-    'humedadEvaporador': 0.0,
-    'temperaturaCondensador': 0.0,
-    'humedadCondensador': 0.0,
-    'voltaje': 0.0,
-    'corriente': 0.0,
-    'potencia': 0.0,
-    'energia': 0.0,
-  };
+  // Valores por defecto eliminados - solo datos en tiempo real
 
   @override
   void initState() {
@@ -41,6 +24,11 @@ class _MonitorScreenState extends State<MonitorScreen>
     _tabController = TabController(length: 3, vsync: this);
     // Escuchar cambios en los datos MQTT
     globalNotifier.addListener(_onDataChanged);
+
+    // Procesar datos iniciales inmediatamente
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _onDataChanged();
+    });
   }
 
   @override
@@ -52,42 +40,100 @@ class _MonitorScreenState extends State<MonitorScreen>
 
   void _onDataChanged() {
     if (mounted) {
+      final data = globalNotifier.value;
+      print(
+          '[MONITOR DEBUG] Datos actualizados en MonitorScreen: ${data.keys}');
+
+      // Log específico para valores eléctricos con detalle
+      if (data.containsKey('voltaje')) {
+        print('[MONITOR ELECTRICO DEBUG] ⚡ Voltaje: ${data['voltaje']}V');
+      }
+      if (data.containsKey('corriente')) {
+        print('[MONITOR ELECTRICO DEBUG] ⚡ Corriente: ${data['corriente']}A');
+      }
+      if (data.containsKey('potencia')) {
+        print('[MONITOR ELECTRICO DEBUG] ⚡ Potencia: ${data['potencia']}W');
+      }
+      if (data.containsKey('energia')) {
+        print('[MONITOR ELECTRICO DEBUG] ⚡ Energía: ${data['energia']}Wh');
+      }
+
+      // === ACTUALIZACIÓN INMEDIATA DE UI ===
+      // Forzar rebuild inmediato para valores eléctricos
+      print('[MONITOR DEBUG] 🔄 Forzando actualización inmediata de UI...');
       setState(() {});
+      
+      // Log de confirmación de actualización
+      print('[MONITOR DEBUG] ✅ UI actualizada - Valores eléctricos sincronizados');
     }
   }
 
-  // Función helper para obtener valores seguros
+  // Función helper para obtener valores seguros - SOLO DATOS REALES
   double _getValue(String key) {
     final data = globalNotifier.value;
-    if (data.containsKey(key) && data[key] != null) {
-      final value = data[key];
-      if (value is num) {
-        return value.toDouble();
-      } else if (value is String) {
-        return double.tryParse(value) ?? _defaultValues[key] ?? 0.0;
+    
+    // === PRIORIDAD PARA VALORES ELÉCTRICOS ===
+    // Los valores eléctricos necesitan actualización inmediata
+    final electricalKeys = ['voltaje', 'corriente', 'potencia', 'energia'];
+    final isElectrical = electricalKeys.contains(key);
+    
+    // Solo procesar si hay datos reales del MQTT
+    if (data.isNotEmpty && data.containsKey('source') && data['source'] == 'MQTT') {
+      if (data.containsKey(key) && data[key] != null) {
+        final value = data[key];
+        if (value is num) {
+          final doubleValue = value.toDouble();
+          // Log detallado para valores eléctricos
+          if (isElectrical) {
+            print(
+                '[MONITOR ${key.toUpperCase()} DEBUG] ⚡ ${key}: ${doubleValue} (tipo: ${value.runtimeType}) - TIEMPO REAL');
+          }
+          return doubleValue;
+        } else if (value is String) {
+          final parsed = double.tryParse(value);
+          if (parsed != null) {
+            if (isElectrical) {
+              print(
+                  '[MONITOR ${key.toUpperCase()} DEBUG] ⚡ ${key} como string: $value -> $parsed - TIEMPO REAL');
+            }
+            return parsed;
+          }
+        }
       }
     }
-    return _defaultValues[key] ?? 0.0;
+    
+    // Si no hay datos reales, mostrar 0.0 (no valores por defecto)
+    if (isElectrical) {
+      print(
+          '[MONITOR ${key.toUpperCase()} DEBUG] ⚡ ${key} NO hay datos reales, mostrando 0.0');
+    }
+    return 0.0;
   }
 
-  // Función helper para formatear valores
-  String _formatValue(double value, String unit, {int decimals = 1}) {
-    // Si el valor es 0 y no hay datos en el notifier, mostrar "--"
-    if (value == 0.0 && globalNotifier.value.isEmpty) {
+  // Función helper para formatear valores - SOLO DATOS EN TIEMPO REAL
+  String _formatValue(double value, String unit, {int decimals = 2}) {
+    final data = globalNotifier.value;
+    
+    // Si no hay datos reales del MQTT, mostrar "--"
+    if (data.isEmpty || !data.containsKey('source') || data['source'] != 'MQTT') {
       return '--';
     }
-    // Si el valor es 0 pero hay datos en el notifier, mostrar el valor
-    if (value == 0.0 && globalNotifier.value.isNotEmpty) {
-      return '${value.toStringAsFixed(decimals)} $unit';
+
+    // Para energía, usar más decimales si el valor es muy pequeño
+    int actualDecimals = decimals;
+    if (unit == 'Wh' && value < 1.0 && value > 0) {
+      actualDecimals = 3; // Mostrar 3 decimales para valores pequeños de energía
+      print('[MONITOR ENERGIA] Valor pequeño detectado: ${value}Wh, usando ${actualDecimals} decimales');
     }
-    return '${value.toStringAsFixed(decimals)} $unit';
+
+    print('[MONITOR TIEMPO REAL] ${unit}: ${value}');
+    return '${value.toStringAsFixed(actualDecimals)} $unit';
   }
 
   @override
   Widget build(BuildContext context) {
     final colorPrimary = Theme.of(context).colorScheme.primary;
     final colorAccent = Theme.of(context).colorScheme.secondary;
-    final colorText = Theme.of(context).colorScheme.onBackground;
     final labelColor = Color(0xFF64B5F6); // azul claro
     return Scaffold(
       appBar: AppBar(
@@ -100,6 +146,7 @@ class _MonitorScreenState extends State<MonitorScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+
             Text('Ambiente',
                 style: TextStyle(
                     fontSize: 18,
@@ -201,7 +248,7 @@ class _MonitorScreenState extends State<MonitorScreen>
             _bigCard(
                 icon: Icons.energy_savings_leaf,
                 label: 'Energía',
-                value: _formatValue(_getValue('energia'), 'kWh', decimals: 2),
+                value: _formatValue(_getValue('energia'), 'Wh', decimals: 2),
                 color: colorAccent,
                 textColor: Colors.white),
           ],

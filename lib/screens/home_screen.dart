@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import 'package:intl/intl.dart';
 import '../services/singleton_mqtt_service.dart';
 import '../services/mqtt_hive.dart';
 import '../services/mqtt_service.dart';
-import '../widgets/professional_water_drop.dart';
+import '../widgets/dropster_animated_symbol.dart';
 import 'dart:async';
 
 /// Pantalla principal que muestra datos eléctricos en tiempo real,
@@ -33,11 +32,10 @@ class _HomeScreenState extends State<HomeScreen>
       SingletonMqttService().connectionNotifier;
 
   // Control de anomalías detectadas para evitar registros duplicados
-  Map<String, bool> _anomalyActive = {};
+  // Map<String, bool> _anomalyActive = {}; // Removido: no se utiliza
   bool _firstLoadDone = false;
 
   late AnimationController _controller;
-  late Animation<double> _animation;
 
   // Nivel del tanque real desde ESP32
   double tankLevel = 0.0;
@@ -82,12 +80,20 @@ class _HomeScreenState extends State<HomeScreen>
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
-    _animation = CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
 
-    // Escuchar datos MQTT para actualizar nivel de tanque real
-    globalNotifier.addListener(() {
+    // Función para procesar datos del notifier
+    void _processNotifierData() {
       final data = globalNotifier.value;
-      print('[UI DEBUG] Notifier actualizado: ${data.keys}');
+      print('[UI DEBUG] Procesando datos del notifier: ${data.keys}');
+
+      // Log específico para energia
+      if (data.containsKey('energia')) {
+        print(
+            '[UI ENERGIA DEBUG] ✅ Energía en notifier: ${data['energia']} (tipo: ${data['energia'].runtimeType})');
+      } else {
+        print('[UI ENERGIA DEBUG] ⚠️ Energía NO presente en notifier');
+        print('[UI ENERGIA DEBUG] Datos actuales: $data');
+      }
 
       // Obtener capacidad del tanque desde configuración
       final settingsBox = Hive.box('settings');
@@ -107,21 +113,24 @@ class _HomeScreenState extends State<HomeScreen>
       if (aguaReal != null && aguaReal >= 0 && tankCapacity > 0) {
         // Calcular porcentaje basado en capacidad configurada
         final porcentaje = (aguaReal / tankCapacity).clamp(0.0, 1.0);
-        setState(() {
-          tankLevel = porcentaje;
-          print(
-              '[UI DEBUG] Nivel de tanque actualizado a ${(porcentaje * 100).toStringAsFixed(1)}% (agua: $aguaReal L de $tankCapacity L)');
-        });
+        if (mounted) {
+          setState(() {
+            tankLevel = porcentaje;
+            print(
+                '[UI DEBUG] Nivel de tanque actualizado a ${(porcentaje * 100).toStringAsFixed(1)}% (agua: $aguaReal L de $tankCapacity L)');
+          });
+        }
       } else {
         print(
             '[UI DEBUG] No se encontró dato de agua almacenada o capacidad inválida');
       }
+    }
 
-      // Forzar actualización de la UI cuando llegan datos nuevos
-      if (data.isNotEmpty && mounted) {
-        setState(() {});
-      }
-    });
+    // Escuchar datos MQTT para actualizar nivel de tanque real
+    globalNotifier.addListener(_processNotifierData);
+
+    // Procesar datos iniciales inmediatamente
+    _processNotifierData();
   }
 
   @override
@@ -164,11 +173,18 @@ class _HomeScreenState extends State<HomeScreen>
         },
       );
 
-      if (latest != null && globalNotifier.value.isEmpty) {
-        globalNotifier.value = {...latest};
-        print('[INIT] Datos previos cargados exitosamente');
+      if (latest != null) {
+        // Solo cargar si el notifier está vacío o si no tiene datos de energía
+        if (globalNotifier.value.isEmpty ||
+            !globalNotifier.value.containsKey('energia')) {
+          globalNotifier.value = {...latest};
+          print('[INIT] Datos previos cargados exitosamente');
+          print('[INIT] Datos cargados: ${latest.keys}');
+        } else {
+          print('[INIT] Notifier ya tiene datos, no se sobrescriben');
+        }
       } else {
-        print('[INIT] No hay datos previos o ya hay datos en el notifier');
+        print('[INIT] No hay datos previos en Hive');
       }
     } catch (e) {
       print('[INIT] Error inicializando datos: $e');
@@ -183,176 +199,37 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  /// Detecta y guarda anomalías de voltaje, corriente y frecuencia en Hive.
-  Future<void> _checkAndSaveAnomalies(Map<String, dynamic> data) async {
-    final anomaliesBox = await Hive.openBox('anomalies');
-    final now = DateTime.now().millisecondsSinceEpoch;
-
-    // Verifica voltaje por fase
-    for (var phase in ['a', 'b', 'c']) {
-      final key = 'voltage_$phase';
-      final voltage = double.tryParse(data[key]?.toString() ?? "");
-      if (voltage == null) continue;
-      final min = nominalVoltage * 0.98;
-      final max = nominalVoltage * 1.02;
-      final anomalyKey = 'voltage_$phase';
-      if (voltage < min || voltage > max) {
-        if (_anomalyActive[anomalyKey] != true) {
-          await anomaliesBox.add({
-            'description':
-                'Voltaje ${phase.toUpperCase()} fuera de rango: ${voltage.toStringAsFixed(2)} V (límite ${min.toStringAsFixed(1)}-${max.toStringAsFixed(1)})',
-            'timestamp': now,
-            'type': 'voltage',
-            'phase': phase,
-            'value': voltage,
-            'limitMin': min,
-            'limitMax': max,
-          });
-          _anomalyActive[anomalyKey] = true;
-        }
-      } else {
-        _anomalyActive[anomalyKey] = false;
-      }
-    }
-
-    // Verifica corriente por fase
-    for (var phase in ['a', 'b', 'c']) {
-      final key = 'current_$phase';
-      final current = double.tryParse(data[key]?.toString() ?? "");
-      if (current == null) continue;
-      final min = nominalCurrent * 0.7;
-      final max = nominalCurrent * 1.3;
-      final anomalyKey = 'current_$phase';
-      if (current < min || current > max) {
-        if (_anomalyActive[anomalyKey] != true) {
-          await anomaliesBox.add({
-            'description':
-                'Corriente ${phase.toUpperCase()} fuera de rango: ${current.toStringAsFixed(2)} A (límite ${min.toStringAsFixed(1)}-${max.toStringAsFixed(1)})',
-            'timestamp': now,
-            'type': 'current',
-            'phase': phase,
-            'value': current,
-            'limitMin': min,
-            'limitMax': max,
-          });
-          _anomalyActive[anomalyKey] = true;
-        }
-      } else {
-        _anomalyActive[anomalyKey] = false;
-      }
-    }
-
-    // Verifica frecuencia
-    final freq = double.tryParse(data['frequency']?.toString() ?? "");
-    if (freq != null) {
-      final anomalyKey = 'frequency';
-      bool outOfRange =
-          !((freq >= 59.9 && freq <= 60.1) || (freq >= 49.9 && freq <= 50.1));
-      if (outOfRange) {
-        if (_anomalyActive[anomalyKey] != true) {
-          await anomaliesBox.add({
-            'description':
-                'Frecuencia fuera de rango: ${freq.toStringAsFixed(2)} Hz',
-            'timestamp': now,
-            'type': 'frequency',
-            'value': freq,
-            'limit': '49.9-50.1 Hz o 59.9-60.1 Hz',
-          });
-          _anomalyActive[anomalyKey] = true;
-        }
-      } else {
-        _anomalyActive[anomalyKey] = false;
-      }
-    }
-
-    // Verifica nivel del tanque
-    double tankLevel = 0.0;
-    final nivelStr = getField(data, 'nivel_tanque');
-    if (nivelStr != '--') {
-      tankLevel = double.tryParse(nivelStr) ?? 0.0;
-      if (tankLevel > 1.0) tankLevel = tankLevel / 100.0;
-      if (tankLevel > 1.0) tankLevel = 1.0;
-      if (tankLevel < 0.0) tankLevel = 0.0;
-    }
-    // Si no existe la variable, intentar con 'nivelTanque'
-    if (tankLevel == 0.0 && data['nivelTanque'] != null) {
-      tankLevel = (data['nivelTanque'] as num).toDouble();
-      if (tankLevel > 1.0) tankLevel = tankLevel / 100.0;
-      if (tankLevel > 1.0) tankLevel = 1.0;
-      if (tankLevel < 0.0) tankLevel = 0.0;
-    }
-
-    if (tankLevel > 0.0) {
-      final anomalyKey = 'tank_level_low';
-      const lowThreshold = 0.15; // 15% del tanque
-
-      if (tankLevel <= lowThreshold) {
-        if (_anomalyActive[anomalyKey] != true) {
-          await anomaliesBox.add({
-            'description':
-                'Nivel del tanque bajo: ${(tankLevel * 100).toStringAsFixed(1)}% - Se recomienda no activar la bomba',
-            'timestamp': now,
-            'type': 'tank_level',
-            'value': tankLevel,
-            'limit': 'Mínimo 15%',
-          });
-          _anomalyActive[anomalyKey] = true;
-        }
-      } else {
-        _anomalyActive[anomalyKey] = false;
-      }
-    }
-  }
-
-  /// Guarda los valores nominales actuales en Hive.
-  Future<void> _saveSettings() async {
-    final settingsBox = Hive.box('settings');
-    await settingsBox.put('nominalVoltage', nominalVoltage);
-    await settingsBox.put('nominalCurrent', nominalCurrent);
-  }
-
   /// Devuelve el valor de un campo como string formateado
   String getField(Map<String, dynamic> data, String key) {
     final value = data[key];
-    if (value == null) return '--';
-    if (value is double) {
-      // Formatear según el tipo de dato
+    if (value == null) {
       if (key.contains('energia')) {
-        return value.toStringAsFixed(1); // Energía con 1 decimal
-      } else if (key.contains('voltaje') || key.contains('corriente')) {
-        return value.toStringAsFixed(2); // Voltaje/corriente con 2 decimales
-      } else if (key.contains('temperatura') || key.contains('humedad')) {
-        return value.toStringAsFixed(1); // Temperatura/humedad con 1 decimal
+        print('[HOME ENERGIA DEBUG] ⚠️ Campo "energia" es null en datos');
+        print('[HOME ENERGIA DEBUG] Claves disponibles: ${data.keys}');
+        print(
+            '[HOME ENERGIA DEBUG] Fuente de datos: ${data['source'] ?? 'desconocida'}');
+        print('[HOME ENERGIA DEBUG] Todos los datos: $data');
+        return 'Sin datos MQTT';
       }
-      return value.toStringAsFixed(2); // Por defecto 2 decimales
+      return '--';
+    }
+    if (value is double) {
+      if (key.contains('energia')) {
+        // Energía ya viene en Wh desde ESP32, no necesita conversión
+        print(
+            '[HOME ENERGIA DEBUG] ✅ Energía recibida en UI: ${value}Wh (tipo: ${value.runtimeType})');
+        
+        // Para energía, usar más decimales si el valor es muy pequeño
+        if (value < 1.0 && value > 0) {
+          print('[HOME ENERGIA DEBUG] Valor pequeño detectado: ${value}Wh, usando 3 decimales');
+          return value.toStringAsFixed(3); // 3 decimales para valores pequeños
+        } else {
+          return value.toStringAsFixed(2); // 2 decimales para valores normales
+        }
+      }
+      return value.toStringAsFixed(2); // Todos los demás valores con 2 decimales
     }
     return value.toString();
-  }
-
-  /// Color del borde del círculo según si el voltaje está en rango
-  Color _getVoltageBorderColor(Map<String, dynamic> data, String voltageStr) {
-    final v = double.tryParse(voltageStr);
-    if (v == null) return Colors.grey;
-    final min = nominalVoltage * 0.98;
-    final max = nominalVoltage * 1.02;
-    return (v >= min && v <= max) ? Colors.green : Colors.red;
-  }
-
-  /// Color del borde del círculo según si la corriente está en rango
-  Color _getCurrentBorderColor(Map<String, dynamic> data, String key) {
-    final val = double.tryParse(getField(data, key));
-    if (val == null) return Colors.grey;
-    final min = nominalCurrent * 0.7;
-    final max = nominalCurrent * 1.3;
-    return (val >= min && val <= max) ? Colors.green : Colors.red;
-  }
-
-  /// Color del borde del círculo según si la frecuencia está en rango
-  Color _getFrequencyBorderColor(Map<String, dynamic> data, String freqStr) {
-    final f = double.tryParse(freqStr);
-    if (f == null) return Colors.grey;
-    bool inRange = (f >= 59.9 && f <= 60.1) || (f >= 49.9 && f <= 50.1);
-    return inRange ? Colors.green : Colors.red;
   }
 
   /// Tarjeta circular que muestra el estado de la batería
@@ -464,241 +341,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  /// Caja estilizada para mostrar la fecha y hora actual
-  Widget _styledDateTimeBox(String dateStr, String timeStr) {
-    return Container(
-      height: 44,
-      margin: const EdgeInsets.symmetric(vertical: 12, horizontal: 0),
-      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-      constraints: const BoxConstraints(
-        maxWidth: 360,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.10),
-            blurRadius: 14,
-            offset: const Offset(2, 2),
-          ),
-        ],
-        border: Border.all(color: const Color(0xFF1D347A), width: 2),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.calendar_today_rounded,
-              color: const Color(0xFF1D347A), size: 24),
-          const SizedBox(width: 8),
-          Text(
-            dateStr,
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontSize: 17,
-              letterSpacing: 1,
-              color: Color(0xFF1D347A),
-            ),
-          ),
-          const SizedBox(width: 16),
-          Icon(Icons.access_time_rounded, color: Color(0xFF1D347A), size: 24),
-          const SizedBox(width: 8),
-          Text(
-            timeStr,
-            style: const TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 1,
-              color: Color(0xFF1D347A),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Caja estilizada para configurar valores nominales de voltaje y corriente
-  Widget _styledNominalBox() {
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 18, horizontal: 24),
-      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 22),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.10),
-            blurRadius: 14,
-            offset: const Offset(2, 2),
-          ),
-        ],
-        border: Border.all(color: const Color(0xFF1D347A), width: 2),
-      ),
-      child: Column(
-        children: [
-          const Text(
-            'Configuración de Valores Nominales',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 17,
-              color: Color(0xFF1D347A),
-              letterSpacing: 0.6,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Campo para voltaje nominal
-              Column(
-                children: [
-                  SizedBox(
-                    width: 120,
-                    child: TextField(
-                      controller: voltageController,
-                      keyboardType:
-                          TextInputType.numberWithOptions(decimal: true),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                        color: Color(0xFF1D347A),
-                      ),
-                      decoration: InputDecoration(
-                        filled: true,
-                        fillColor: const Color(0xFFEDF0F6),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: const BorderSide(
-                              color: Color(0xFF1D347A), width: 2),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: const BorderSide(
-                              color: Color(0xFFB5B5B5), width: 1.1),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        contentPadding:
-                            const EdgeInsets.symmetric(vertical: 10),
-                        isDense: true,
-                      ),
-                      onChanged: (val) {
-                        final parsed = double.tryParse(val);
-                        if (parsed != null) {
-                          setState(() => nominalVoltage = parsed);
-                          _saveSettings();
-                        }
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Voltaje nominal (V)',
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        color: Color(0xFF1D347A)),
-                  ),
-                ],
-              ),
-              const SizedBox(width: 30),
-              // Campo para corriente nominal
-              Column(
-                children: [
-                  SizedBox(
-                    width: 120,
-                    child: TextField(
-                      controller: currentController,
-                      keyboardType:
-                          TextInputType.numberWithOptions(decimal: true),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                        color: Color(0xFF1D347A),
-                      ),
-                      decoration: InputDecoration(
-                        filled: true,
-                        fillColor: const Color(0xFFEDF0F6),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: const BorderSide(
-                              color: Color(0xFF1D347A), width: 2),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: const BorderSide(
-                              color: Color(0xFFB5B5B5), width: 1.1),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        contentPadding:
-                            const EdgeInsets.symmetric(vertical: 10),
-                        isDense: true,
-                      ),
-                      onChanged: (val) {
-                        final parsed = double.tryParse(val);
-                        if (parsed != null) {
-                          setState(() => nominalCurrent = parsed);
-                          _saveSettings();
-                        }
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Corriente nominal (A)',
-                    style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                        color: Color(0xFF1D347A)),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDataCard(String title, String value, String unit, IconData icon,
-      Color borderColor, Color textColor) {
-    return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: borderColor, width: 2),
-      ),
-      elevation: 4,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: borderColor, size: 32),
-            const SizedBox(height: 8),
-            Text(
-              title,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: textColor,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '$value $unit',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: borderColor,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   void _toggleSystem() async {
     final command = isSystemOn ? "OFF" : "ON";
     await _mqttService.publishCommand(command);
@@ -746,24 +388,64 @@ class _HomeScreenState extends State<HomeScreen>
           backgroundColor: colorPrimary,
           foregroundColor: Colors.white,
         ),
-        body: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircularProgressIndicator(color: colorAccent),
-              const SizedBox(height: 16),
-              Text(
-                'Cargando datos...',
-                style: TextStyle(color: colorText),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Si tarda demasiado, la app se cargará automáticamente',
-                style:
-                    TextStyle(color: colorText.withOpacity(0.7), fontSize: 12),
-                textAlign: TextAlign.center,
-              ),
-            ],
+        body: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                colorPrimary.withOpacity(0.1),
+                colorAccent.withOpacity(0.05),
+              ],
+            ),
+          ),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                // Indicador de carga con colores de la paleta
+                Container(
+                  padding: const EdgeInsets.all(24),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [
+                      BoxShadow(
+                        color: colorPrimary.withOpacity(0.2),
+                        blurRadius: 20,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      CircularProgressIndicator(
+                        color: colorAccent,
+                        strokeWidth: 3,
+                      ),
+                      const SizedBox(height: 20),
+                      Text(
+                        'Cargando datos...',
+                        style: TextStyle(
+                          color: colorPrimary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Si tarda demasiado, la app se cargará automáticamente',
+                        style: TextStyle(
+                          color: colorPrimary.withOpacity(0.7),
+                          fontSize: 12,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       );
@@ -845,8 +527,8 @@ class _HomeScreenState extends State<HomeScreen>
             Center(
               child: Column(
                 children: [
-                  // Gota sin contenedor de fondo
-                  ProfessionalWaterDrop(
+                  // Símbolo de Dropster animado
+                  DropsterAnimatedSymbol(
                     value: tankLevel,
                     size: 140,
                     primaryColor: colorAccent,
@@ -854,66 +536,14 @@ class _HomeScreenState extends State<HomeScreen>
                     animationDuration: const Duration(milliseconds: 800),
                   ),
                   const SizedBox(height: 16),
-                  // Nombre de la variable con estilo profesional
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 12),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          colorPrimary.withOpacity(0.1),
-                          colorAccent.withOpacity(0.1),
-                        ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: colorAccent.withOpacity(0.3),
-                        width: 1.5,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.05),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      children: [
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.water_drop,
-                              color: colorAccent,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Nivel del Tanque',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: colorText,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        // Porcentaje debajo del nombre
-                        Text(
-                          '${(tankLevel * 100).toStringAsFixed(1)}%',
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.bold,
-                            color: colorAccent,
-                            letterSpacing: 1.0,
-                          ),
-                        ),
-                      ],
+                  // Título simple sin porcentaje
+                  Text(
+                    'Nivel del Tanque',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: colorText,
+                      letterSpacing: 0.5,
                     ),
                   ),
                 ],
@@ -1008,7 +638,7 @@ class _HomeScreenState extends State<HomeScreen>
                 _miniDataCard(
                     'Energía',
                     getField(globalNotifier.value, 'energia'),
-                    'kWh',
+                    'Wh',
                     Icons.flash_on,
                     colorAccent,
                     colorText),

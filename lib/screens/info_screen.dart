@@ -22,26 +22,7 @@ class InfoScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  "Dropster es una aplicación móvil desarrollada en Flutter que permite el monitoreo y control en tiempo real del sistema AWG (Atmospheric Water Generator) Dropster. Esta tecnología genera agua para sistemas de riego en ambientes controlados a partir de la humedad del aire utilizando refrigeración y condensación.\n",
-                  style: TextStyle(fontSize: 14),
-                ),
-                
-                const SizedBox(height: 16),
-                Text(
-                  "Arquitectura de la Aplicación:",
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  "• Frontend: Flutter/Dart con Material Design 3\n"
-                  "• Almacenamiento: Hive (base de datos local)\n"
-                  "• Comunicación: MQTT (WiFi)\n"
-                  "• Gráficas: fl_chart para visualización de datos\n"
-                  "• Estado: Provider para gestión de estado global\n",
+                  "Dropster es una aplicación móvil que permite el monitoreo y control en tiempo real del sistema AWG (Atmospheric Water Generator) Dropster. Esta tecnología genera agua para sistemas de riego en ambientes controlados a partir de la humedad del aire utilizando refrigeración y condensación.\n",
                   style: TextStyle(fontSize: 14),
                 ),
                 
@@ -59,7 +40,7 @@ class InfoScreen extends StatelessWidget {
                   "🏠 Inicio: Monitoreo visual del nivel del tanque, temperatura, humedad y energía consumida\n"
                   "📊 Monitoreo: Datos detallados del sistema en tiempo real\n"
                   "🔗 Conectividad: Gestión de conexiones MQTT\n"
-                  "📈 Gráficas: Visualización histórica y en tiempo real de variables de interés (eficiencia, consumo electrico, agua generada)\n"
+                  "📈 Gráficas: Visualización histórica y en tiempo real de variables de interés\n"
                   "🔔 Notificaciones: Alertas de anomalías y reportes diarios automáticos\n"
                   "⚙️ Configuración: Ajustes del sistema, notificaciones, configuracion de datos, configuracion de reportes diarios, conectividad y configuración del tanque\n"
                   "ℹ️ Información: Datos de la aplicación y ayuda\n",
@@ -80,9 +61,8 @@ class InfoScreen extends StatelessWidget {
                   "• Monitoreo en tiempo real de variables de interés\n"
                   "• Reportes diarios automáticos con cálculo de agua generada y eficiencia del sistema\n"
                   "• Almacenamiento local de datos históricos\n"
-                  "• Interfaz responsiva y adaptativa (tema claro/oscuro)\n"
-                  "• Notificaciones inteligentes para nivel bajo del tanque\n"
-                  "• Configuración personalizable del tanque (forma y capacidad)\n",
+                  "• Interfaz responsiva y adaptativa\n"
+                  "• Notificaciones inteligentes para alerta de anomalías y reportes diarios\n",
                   style: TextStyle(fontSize: 14),
                 ),
               ],

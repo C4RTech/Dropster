@@ -33,6 +33,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   double tankCapacity = 1000.0; // litros
   final tankCapacityController = TextEditingController();
 
+  // Configuración de umbrales para alertas
+  double tankFullThreshold = 90.0; // %
+  double voltageLowThreshold = 100.0; // V
+  double humidityLowThreshold = 30.0; // %
+  bool tankFullEnabled = true;
+  bool voltageLowEnabled = true;
+  bool humidityLowEnabled = true;
+
   @override
   void initState() {
     super.initState();
@@ -76,6 +84,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
       tankCapacity = settingsBox.get('tankCapacity', defaultValue: 1000.0);
       tankCapacityController.text = tankCapacity.toStringAsFixed(0);
 
+      // Configuración de umbrales para alertas
+      tankFullThreshold =
+          settingsBox.get('tankFullThreshold', defaultValue: 90.0);
+      voltageLowThreshold =
+          settingsBox.get('voltageLowThreshold', defaultValue: 100.0);
+      humidityLowThreshold =
+          settingsBox.get('humidityLowThreshold', defaultValue: 30.0);
+      tankFullEnabled = settingsBox.get('tankFullEnabled', defaultValue: true);
+      voltageLowEnabled =
+          settingsBox.get('voltageLowEnabled', defaultValue: true);
+      humidityLowEnabled =
+          settingsBox.get('humidityLowEnabled', defaultValue: true);
+
       // Configuración de reportes diarios
       dailyReportEnabled =
           settingsBox.get('dailyReportEnabled', defaultValue: false);
@@ -86,45 +107,67 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _saveSettings() async {
+    final currentContext = context;
     final settingsBox = Hive.box('settings');
-    // Guardar valores nominales
-    await settingsBox.put('nominalVoltage', nominalVoltage);
-    await settingsBox.put('nominalCurrent', nominalCurrent);
-    // Guardar configuraciones de la app
-    await settingsBox.put('isSavingEnabled', isSavingEnabled);
-    await settingsBox.put('autoConnect', autoConnect);
-    await settingsBox.put('showNotifications', showNotifications);
-    await settingsBox.put('mqttBroker', mqttBroker);
-    await settingsBox.put('mqttPort', mqttPort);
-    await settingsBox.put('mqttTopic', mqttTopic);
 
-    // Guardar configuración del tanque
-    await settingsBox.put('tankCapacity', tankCapacity);
-
-    // Guardar configuración de reportes diarios
-    await settingsBox.put('dailyReportEnabled', dailyReportEnabled);
-    await settingsBox.put('dailyReportHour', dailyReportTime.hour);
-    await settingsBox.put('dailyReportMinute', dailyReportTime.minute);
-
-    // Actualizar el servicio MQTT Hive
-    MqttHiveService.toggleSaving(isSavingEnabled);
-
-    // Programar o cancelar reporte diario
-    await DailyReportService()
-        .scheduleDailyReport(dailyReportTime, dailyReportEnabled);
-
-    // 🔄 RECONECTAR MQTT CON NUEVA CONFIGURACIÓN
     try {
-      print('[SETTINGS] Aplicando nueva configuración MQTT...');
+      // Guardar valores nominales
+      await settingsBox.put('nominalVoltage', nominalVoltage);
+      await settingsBox.put('nominalCurrent', nominalCurrent);
+
+      // Guardar configuraciones de la app
+      await settingsBox.put('isSavingEnabled', isSavingEnabled);
+      await settingsBox.put('autoConnect', autoConnect);
+      await settingsBox.put('showNotifications', showNotifications);
+      await settingsBox.put('mqttBroker', mqttBroker);
+      await settingsBox.put('mqttPort', mqttPort);
+      await settingsBox.put('mqttTopic', mqttTopic);
+
+      // Guardar configuración del tanque
+      await settingsBox.put('tankCapacity', tankCapacity);
+
+      // Guardar configuración de umbrales para alertas
+      await settingsBox.put('tankFullThreshold', tankFullThreshold);
+      await settingsBox.put('voltageLowThreshold', voltageLowThreshold);
+      await settingsBox.put('humidityLowThreshold', humidityLowThreshold);
+      await settingsBox.put('tankFullEnabled', tankFullEnabled);
+      await settingsBox.put('voltageLowEnabled', voltageLowEnabled);
+      await settingsBox.put('humidityLowEnabled', humidityLowEnabled);
+
+      // Guardar configuración de reportes diarios
+      await settingsBox.put('dailyReportEnabled', dailyReportEnabled);
+      await settingsBox.put('dailyReportHour', dailyReportTime.hour);
+      await settingsBox.put('dailyReportMinute', dailyReportTime.minute);
+
+      // Actualizar el servicio MQTT Hive inmediatamente
+      MqttHiveService.toggleSaving(isSavingEnabled);
+
+      // Programar o cancelar reporte diario
+      await DailyReportService()
+          .scheduleDailyReport(dailyReportTime, dailyReportEnabled);
+
+      // 🔄 RECONECTAR MQTT CON NUEVA CONFIGURACIÓN INMEDIATAMENTE
+      debugPrint('[SETTINGS] Aplicando nueva configuración MQTT...');
       await SingletonMqttService()
           .mqttClientService
           .reconnectWithNewConfig(SingletonMqttService().mqttService);
-      print('[SETTINGS] ✅ Configuración MQTT aplicada exitosamente');
+      debugPrint('[SETTINGS] ✅ Configuración MQTT aplicada exitosamente');
+
+      // Mostrar SnackBar de éxito
+      if (mounted) {
+        ScaffoldMessenger.of(currentContext).showSnackBar(
+          SnackBar(
+            content: const Text('Configuración guardada y aplicada',
+                style: TextStyle(color: Color(0xFF155263))),
+            backgroundColor: Colors.white,
+          ),
+        );
+      }
     } catch (e) {
-      print('[SETTINGS] ❌ Error aplicando configuración MQTT: $e');
+      debugPrint('[SETTINGS] ❌ Error aplicando configuración MQTT: $e');
       // Mostrar error pero no bloquear el guardado
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        ScaffoldMessenger.of(currentContext).showSnackBar(
           SnackBar(
             content: Text('Configuración guardada, pero error en MQTT: $e',
                 style: const TextStyle(color: Colors.white)),
@@ -132,17 +175,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         );
       }
-    }
-
-    // Mostrar SnackBar de éxito con el mismo estilo que los demás
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Configuración guardada',
-              style: TextStyle(color: Color(0xFF155263))),
-          backgroundColor: Colors.white,
-        ),
-      );
     }
   }
 
@@ -193,6 +225,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 'Configuración del Tanque', Icons.water_drop, labelColor),
             const SizedBox(height: 16),
             _buildTankSettingsCard(colorPrimary, colorAccent, colorText),
+            const SizedBox(height: 24),
+            // Sección de umbrales de alertas
+            _buildSectionHeader(
+                'Umbrales de Alertas', Icons.warning, labelColor),
+            const SizedBox(height: 16),
+            _buildAlertThresholdsCard(colorPrimary, colorAccent, colorText),
             const SizedBox(height: 32),
             // Botón de guardar
             SizedBox(
@@ -434,11 +472,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const Divider(),
             ListTile(
-              leading: Icon(Icons.assessment, color: colorAccent),
-              title: const Text('Generar reporte manual'),
-              subtitle: const Text('Crear reporte del día actual'),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-              onTap: _generateManualReport,
+              leading: Icon(Icons.notification_important, color: colorAccent),
+              title: const Text('Probar reporte diario'),
+              subtitle: const Text('Generar notificación de reporte simulado'),
+              trailing: const Icon(Icons.send, size: 16),
+              onTap: _testDailyReport,
+            ),
+            const Divider(),
+            ListTile(
+              leading: Icon(Icons.today, color: colorAccent),
+              title: const Text('Reporte del día actual'),
+              subtitle: const Text('Generar reporte con datos actuales'),
+              trailing: const Icon(Icons.assessment, size: 16),
+              onTap: _generateCurrentDayReport,
             ),
             const Divider(),
             ListTile(
@@ -471,6 +517,175 @@ class _SettingsScreenState extends State<SettingsScreen> {
               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
               onTap: _showTankCapacityDialog,
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAlertThresholdsCard(
+      Color colorPrimary, Color colorAccent, Color colorText) {
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            // Alerta de tanque lleno
+            SwitchListTile(
+              title: const Text('Alerta de tanque lleno'),
+              subtitle: Text(
+                  'Notificar cuando el tanque supere el ${tankFullThreshold.toStringAsFixed(0)}%'),
+              value: tankFullEnabled,
+              onChanged: (value) {
+                setState(() {
+                  tankFullEnabled = value;
+                });
+              },
+              activeColor: colorAccent,
+            ),
+            if (tankFullEnabled)
+              Padding(
+                padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+                child: Row(
+                  children: [
+                    const Text('Umbral: '),
+                    Expanded(
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          activeTrackColor: colorAccent,
+                          inactiveTrackColor: colorAccent.withOpacity(0.3),
+                          thumbColor: colorAccent,
+                          overlayColor: colorAccent.withOpacity(0.2),
+                          valueIndicatorColor: colorAccent,
+                          valueIndicatorTextStyle: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        child: Slider(
+                          value: tankFullThreshold,
+                          min: 70,
+                          max: 100,
+                          divisions: 30,
+                          label: '${tankFullThreshold.toStringAsFixed(0)}%',
+                          onChanged: (value) {
+                            setState(() {
+                              tankFullThreshold = value;
+                            });
+                          },
+                          activeColor: colorAccent,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            const Divider(),
+
+            // Alerta de voltaje bajo
+            SwitchListTile(
+              title: const Text('Alerta de voltaje bajo'),
+              subtitle: Text(
+                  'Notificar cuando el voltaje baje de ${voltageLowThreshold.toStringAsFixed(0)}V'),
+              value: voltageLowEnabled,
+              onChanged: (value) {
+                setState(() {
+                  voltageLowEnabled = value;
+                });
+              },
+              activeColor: colorAccent,
+            ),
+            if (voltageLowEnabled)
+              Padding(
+                padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+                child: Row(
+                  children: [
+                    const Text('Umbral: '),
+                    Expanded(
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          activeTrackColor: colorAccent,
+                          inactiveTrackColor: colorAccent.withOpacity(0.3),
+                          thumbColor: colorAccent,
+                          overlayColor: colorAccent.withOpacity(0.2),
+                          valueIndicatorColor: colorAccent,
+                          valueIndicatorTextStyle: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        child: Slider(
+                          value: voltageLowThreshold,
+                          min: 50,
+                          max: 150,
+                          divisions: 100,
+                          label: '${voltageLowThreshold.toStringAsFixed(0)}V',
+                          onChanged: (value) {
+                            setState(() {
+                              voltageLowThreshold = value;
+                            });
+                          },
+                          activeColor: colorAccent,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            const Divider(),
+
+            // Alerta de humedad baja
+            SwitchListTile(
+              title: const Text('Alerta de humedad baja'),
+              subtitle: Text(
+                  'Notificar cuando la humedad baje de ${humidityLowThreshold.toStringAsFixed(1)}%'),
+              value: humidityLowEnabled,
+              onChanged: (value) {
+                setState(() {
+                  humidityLowEnabled = value;
+                });
+              },
+              activeColor: colorAccent,
+            ),
+            if (humidityLowEnabled)
+              Padding(
+                padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+                child: Row(
+                  children: [
+                    const Text('Umbral: '),
+                    Expanded(
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          activeTrackColor: colorAccent,
+                          inactiveTrackColor: colorAccent.withOpacity(0.3),
+                          thumbColor: colorAccent,
+                          overlayColor: colorAccent.withOpacity(0.2),
+                          valueIndicatorColor: colorAccent,
+                          valueIndicatorTextStyle: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        child: Slider(
+                          value: humidityLowThreshold,
+                          min: 10,
+                          max: 50,
+                          divisions: 40,
+                          label: '${humidityLowThreshold.toStringAsFixed(1)}%',
+                          onChanged: (value) {
+                            setState(() {
+                              humidityLowThreshold = value;
+                            });
+                          },
+                          activeColor: colorAccent,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),
@@ -637,8 +852,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showDailyReportTimeDialog() async {
+    final currentContext = context;
     final TimeOfDay? picked = await showTimePicker(
-      context: context,
+      context: currentContext,
       initialTime: dailyReportTime,
       builder: (context, child) {
         return Theme(
@@ -651,7 +867,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
             textButtonTheme: TextButtonThemeData(
               style: TextButton.styleFrom(
+                backgroundColor: const Color(0xFF206877),
                 foregroundColor: Colors.white,
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(30),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               ),
             ),
           ),
@@ -665,247 +890,155 @@ class _SettingsScreenState extends State<SettingsScreen> {
         dailyReportTime = picked;
       });
       _saveSettings();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-              'Hora del reporte diario actualizada a ${picked.format(context)}',
-              style: TextStyle(color: Color(0xFF155263))),
-          backgroundColor: Colors.white,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(currentContext).showSnackBar(
+          SnackBar(
+            content: Text(
+                'Hora del reporte diario actualizada a ${picked.format(currentContext)}',
+                style: TextStyle(color: Color(0xFF155263))),
+            backgroundColor: Colors.white,
+          ),
+        );
+      }
     }
   }
 
   void _showReportHistoryDialog() async {
+    final currentContext = context;
     final reports = await DailyReportService().getReportHistory();
 
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Historial de Reportes Diarios'),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: 400,
-          child: reports.isEmpty
-              ? const Center(
-                  child: Text('No hay reportes disponibles'),
-                )
-              : ListView.builder(
-                  itemCount: reports.length,
-                  itemBuilder: (context, index) {
-                    final report = reports[index];
-                    final date =
-                        DateTime.fromMillisecondsSinceEpoch(report['date']);
-                    final energy = report['energy'] ?? 0.0;
-                    final water = report['water'] ?? 0.0;
-                    final efficiency = report['efficiency'] ?? 0.0;
-
-                    return Card(
-                      margin: const EdgeInsets.symmetric(vertical: 4),
-                      child: ListTile(
-                        title: Text(
-                          '${DateFormat('dd/MM/yyyy').format(date)}',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('⚡ Energía: ${energy.toStringAsFixed(2)} kWh'),
-                            Text('💧 Agua: ${water.toStringAsFixed(2)} L'),
-                            Text(
-                                '⚡ Eficiencia: ${efficiency.toStringAsFixed(3)} kWh/L'),
-                          ],
-                        ),
-                        trailing: Icon(
-                          efficiency > 0 ? Icons.check_circle : Icons.warning,
-                          color: efficiency > 0 ? Colors.green : Colors.orange,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Cerrar', style: TextStyle(color: Colors.white)),
-          ),
-          if (reports.isNotEmpty)
-            TextButton(
-              onPressed: () async {
-                await DailyReportService().clearReportHistory();
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Historial de reportes borrado'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-              },
-              child: const Text('Borrar Historial',
-                  style: TextStyle(color: Colors.red)),
-            ),
-        ],
-      ),
-    );
-  }
-
-  void _generateManualReport() async {
-    try {
-      // Mostrar indicador de carga
+    if (mounted) {
       showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (context) => const AlertDialog(
-          content: Row(
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(width: 16),
-              Text('Generando reporte...'),
-            ],
-          ),
-        ),
-      );
-
-      // Obtener datos del día actual
-      final today = DateTime.now();
-      final startOfDay = DateTime(today.year, today.month, today.day);
-      final endOfDay = startOfDay.add(const Duration(days: 1));
-
-      // Obtener datos desde Hive
-      final dataBox = await Hive.openBox('mqtt_data');
-      final allData = dataBox.values.whereType<Map>().toList();
-
-      // Filtrar datos del día actual
-      final dayData = allData.where((data) {
-        final timestamp = data['timestamp'];
-        if (timestamp == null) return false;
-
-        final dataTime = DateTime.fromMillisecondsSinceEpoch(timestamp);
-        return dataTime.isAfter(startOfDay) && dataTime.isBefore(endOfDay);
-      }).toList();
-
-      // Cerrar diálogo de carga
-      Navigator.pop(context);
-
-      if (dayData.isEmpty) {
-        showDialog(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Sin datos'),
-            content: const Text('No hay datos disponibles para el día actual.'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.white,
-                ),
-                child:
-                    const Text('Cerrar', style: TextStyle(color: Colors.white)),
-              ),
-            ],
-          ),
-        );
-        return;
-      }
-
-      // Calcular totales
-      double maxEnergy = 0.0;
-      double maxWater = 0.0;
-
-      for (final data in dayData) {
-        final energyToday = _parseDouble(data['energyToday']);
-        if (energyToday != null && energyToday > maxEnergy) {
-          maxEnergy = energyToday;
-        }
-
-        final waterGenerated = _parseDouble(data['waterGenerated']) ??
-            _parseDouble(data['aguaGenerada']) ??
-            0.0;
-        if (waterGenerated > maxWater) {
-          maxWater = waterGenerated;
-        }
-      }
-
-      // Calcular eficiencia
-      double efficiency = 0.0;
-      if (maxWater > 0 && maxEnergy > 0) {
-        efficiency = maxEnergy / maxWater;
-      }
-
-      // Mostrar reporte
-      showDialog(
-        context: context,
+        context: currentContext,
         builder: (context) => AlertDialog(
-          title: Text('Reporte del ${DateFormat('dd/MM/yyyy').format(today)}'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('⚡ Energía consumida: ${maxEnergy.toStringAsFixed(2)} kWh'),
-              const SizedBox(height: 8),
-              Text('💧 Agua generada: ${maxWater.toStringAsFixed(2)} L'),
-              const SizedBox(height: 8),
-              Text('⚡ Eficiencia: ${efficiency.toStringAsFixed(3)} kWh/L'),
-              const SizedBox(height: 16),
-              Text(
-                efficiency > 0
-                    ? '✅ Sistema funcionando correctamente'
-                    : '⚠️ Sin datos de eficiencia',
-                style: TextStyle(
-                  color: efficiency > 0 ? Colors.green : Colors.orange,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
+          title: const Text('Historial de Reportes Diarios'),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: 400,
+            child: reports.isEmpty
+                ? const Center(
+                    child: Text('No hay reportes disponibles'),
+                  )
+                : ListView.builder(
+                    itemCount: reports.length,
+                    itemBuilder: (context, index) {
+                      final report = reports[index];
+                      final date =
+                          DateTime.fromMillisecondsSinceEpoch(report['date']);
+                      final energy = report['energy'] ?? 0.0;
+                      final water = report['water'] ?? 0.0;
+                      final efficiency = report['efficiency'] ?? 0.0;
+
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        child: ListTile(
+                          title: Text(
+                            '${DateFormat('dd/MM/yyyy').format(date)}',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                  '⚡ Energía: ${energy.toStringAsFixed(2)} Wh'),
+                              Text('💧 Agua: ${water.toStringAsFixed(2)} L'),
+                              Text(
+                                  '⚡ Eficiencia: ${efficiency.toStringAsFixed(3)} Wh/L'),
+                            ],
+                          ),
+                          trailing: Icon(
+                            efficiency > 0 ? Icons.check_circle : Icons.warning,
+                            color:
+                                efficiency > 0 ? Colors.green : Colors.orange,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: () => Navigator.pop(currentContext),
               style: TextButton.styleFrom(
                 foregroundColor: Colors.white,
               ),
               child:
                   const Text('Cerrar', style: TextStyle(color: Colors.white)),
             ),
-            ElevatedButton(
-              onPressed: () async {
-                // Guardar reporte en historial
-                await DailyReportService().saveReportToHistory(
-                    today, maxEnergy, maxWater, efficiency);
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Reporte guardado en historial'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              },
-              child: const Text('Guardar en Historial',
-                  style: TextStyle(color: Colors.white)),
-            ),
+            if (reports.isNotEmpty)
+              TextButton(
+                onPressed: () async {
+                  await DailyReportService().clearReportHistory();
+                  Navigator.pop(currentContext);
+                  if (mounted) {
+                    ScaffoldMessenger.of(currentContext).showSnackBar(
+                      const SnackBar(
+                        content: Text('Historial de reportes borrado'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                },
+                child: const Text('Borrar Historial',
+                    style: TextStyle(color: Colors.red)),
+              ),
           ],
-        ),
-      );
-    } catch (e) {
-      Navigator.pop(context); // Cerrar diálogo de carga si hay error
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error generando reporte: $e'),
-          backgroundColor: Colors.red,
         ),
       );
     }
   }
 
-  double? _parseDouble(dynamic value) {
-    if (value == null) return null;
-    if (value is double) return value;
-    if (value is int) return value.toDouble();
-    if (value is String) return double.tryParse(value);
-    return null;
+
+
+  void _testDailyReport() async {
+    try {
+      debugPrint('🧪 Iniciando prueba de reporte diario...');
+      await DailyReportService().generateTestReport();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Reporte de prueba enviado',
+                style: TextStyle(color: Color(0xFF155263))),
+            backgroundColor: Colors.white,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error en prueba de reporte: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error en prueba: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _generateCurrentDayReport() async {
+    try {
+      debugPrint('📊 Generando reporte del día actual...');
+      await DailyReportService().generateCurrentDayReport();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Reporte del día actual enviado',
+                style: TextStyle(color: Color(0xFF155263))),
+            backgroundColor: Colors.white,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error generando reporte del día actual: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error generando reporte: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 }

@@ -131,6 +131,10 @@ public:
             Serial.println("Error: SHT31 #2");
             allSensorsOK = false;
         }
+        
+        Serial.println("PZEM-004T inicializado automáticamente");
+        Serial.println("PZEM-004T OK");
+        
         if (allSensorsOK) {
             Serial.println("Sensores OK");
         }
@@ -161,15 +165,107 @@ public:
         // HC-SR04 - Lectura estable y rápida
         data.distance = getStableFastDistance();
 
-        // PZEM-004T (con NAN check)
-        data.voltage = pzem.voltage();
-        if (isnan(data.voltage)) data.voltage = 0.0;
-        data.current = pzem.current();
-        if (isnan(data.current)) data.current = 0.0;
-        data.power = pzem.power();
-        if (isnan(data.power)) data.power = 0.0;
-        data.energy = pzem.energy();
-        if (isnan(data.energy)) data.energy = 0.0;
+        // PZEM-004T (lectura robusta con múltiples intentos)
+        // Leer voltaje
+        float voltage = pzem.voltage();
+        Serial.print("PZEM DEBUG - Voltaje raw: ");
+        Serial.println(voltage);
+        if (isnan(voltage) || voltage < 0 || voltage > 300) {
+            Serial.println("PZEM DEBUG - ⚠️ VOLTAJE inválido, asignando 0.0");
+            data.voltage = 0.0;
+        } else {
+            data.voltage = voltage;
+        }
+
+        // Leer corriente
+        float current = pzem.current();
+        Serial.print("PZEM DEBUG - Corriente raw: ");
+        Serial.println(current);
+        if (isnan(current) || current < 0 || current > 100) {
+            Serial.println("PZEM DEBUG - ⚠️ CORRIENTE inválida, asignando 0.0");
+            data.current = 0.0;
+        } else {
+            data.current = current;
+        }
+
+        // Leer potencia
+        float power = pzem.power();
+        Serial.print("PZEM DEBUG - Potencia raw: ");
+        Serial.println(power);
+        if (isnan(power) || power < 0 || power > 10000) {
+            Serial.println("PZEM DEBUG - ⚠️ POTENCIA inválida, asignando 0.0");
+            data.power = 0.0;
+        } else {
+            data.power = power;
+        }
+
+        // Leer energía (acumulada en Wh)
+        float energy = pzem.energy();
+        Serial.print("PZEM DEBUG - Energía raw (Wh): ");
+        Serial.println(energy);
+        if (isnan(energy) || energy < 0) {
+            Serial.println("PZEM DEBUG - ⚠️ ENERGÍA inválida, asignando 0.0");
+            data.energy = 0.0;
+        } else {
+            data.energy = energy;
+        }
+
+        // === FILTRO INTELIGENTE PARA PZEM004T ===
+        // Detecta cuando no hay alimentación eléctrica y corrige valores fantasma
+        // Este filtro SOLO afecta corriente y potencia, NUNCA voltaje ni energía
+        
+        static int noPowerCount = 0; // Contador para confirmar corte de alimentación
+        const int CONFIRMATION_READINGS = 2; // Confirmar con 2 lecturas consecutivas
+        
+        if (data.voltage <= 0.5) { // Umbral de 0.5V para detectar corte de alimentación
+            noPowerCount++;
+            Serial.print("PZEM FILTER - ⚡ Sin alimentación detectada (V ≤ 0.5V) - Lectura ");
+            Serial.print(noPowerCount);
+            Serial.print("/");
+            Serial.println(CONFIRMATION_READINGS);
+            
+            // Solo aplicar filtro después de confirmar con múltiples lecturas
+            if (noPowerCount >= CONFIRMATION_READINGS) {
+                Serial.println("PZEM FILTER - 🔧 Aplicando filtro anti-fantasma...");
+                
+                // Si no hay voltaje, corriente y potencia deben ser 0
+                if (data.current > 0.01) { // Solo corregir si hay corriente fantasma
+                    Serial.print("PZEM FILTER - 🔧 Corrigiendo corriente fantasma: ");
+                    Serial.print(data.current);
+                    Serial.println("A → 0.0A");
+                    data.current = 0.0;
+                }
+                
+                if (data.power > 0.1) { // Solo corregir si hay potencia fantasma
+                    Serial.print("PZEM FILTER - 🔧 Corrigiendo potencia fantasma: ");
+                    Serial.print(data.power);
+                    Serial.println("W → 0.0W");
+                    data.power = 0.0;
+                }
+                
+                Serial.println("PZEM FILTER - ✅ Filtro aplicado: V=" + String(data.voltage) + 
+                              "V, C=" + String(data.current) + "A, P=" + String(data.power) + "W");
+                Serial.println("PZEM FILTER - ⚠️ NOTA: Voltaje y energía NO fueron modificados");
+            }
+        } else {
+            // Hay alimentación, resetear contador y valores son válidos
+            if (noPowerCount > 0) {
+                Serial.println("PZEM FILTER - ✅ Alimentación restaurada, contador reseteado");
+                noPowerCount = 0;
+            }
+            Serial.println("PZEM FILTER - ✅ Alimentación normal, valores válidos");
+        }
+
+        // Log final de valores procesados
+        Serial.print("PZEM FINAL - V:");
+        Serial.print(data.voltage);
+        Serial.print("V, C:");
+        Serial.print(data.current);
+        Serial.print("A, P:");
+        Serial.print(data.power);
+        Serial.print("W, E:");
+        Serial.print(data.energy);
+        Serial.println("Wh");
 
         // Cálculos
         data.dewPoint = calculateDewPoint(data.sht1Temp, data.sht1Hum);
@@ -211,27 +307,45 @@ public:
         // Crear JSON compacto con TODOS los datos del sistema AWG
         StaticJsonDocument<600> doc; // Aumentado para más datos
 
-        // === DATOS PRINCIPALES ===
-        if (data.bmeTemp > -50) doc["t"] = round(data.bmeTemp * 10) / 10; // Temp ambiente
-        if (data.bmeHum >= 0) doc["h"] = round(data.bmeHum * 10) / 10;   // Humedad ambiente
-        if (data.bmePres > 0) doc["p"] = round(data.bmePres);            // Presión atm
+        // === DATOS PRINCIPALES (2 decimales) ===
+        if (data.bmeTemp > -50) doc["t"] = round(data.bmeTemp * 100) / 100; // Temp ambiente
+        if (data.bmeHum >= 0) doc["h"] = round(data.bmeHum * 100) / 100;   // Humedad ambiente
+        if (data.bmePres > 0) doc["p"] = round(data.bmePres * 100) / 100;  // Presión atm
         if (data.waterVolume >= 0) doc["w"] = round(data.waterVolume * 100) / 100; // Agua almacenada
 
-        // === SENSORES ADICIONALES ===
-        if (data.sht1Temp > -50) doc["te"] = round(data.sht1Temp * 10) / 10; // Temp evaporador
-        if (data.sht1Hum >= 0) doc["he"] = round(data.sht1Hum * 10) / 10;    // Humedad evaporador
-        if (data.sht2Temp > -50) doc["tc"] = round(data.sht2Temp * 10) / 10; // Temp condensador
-        if (data.sht2Hum >= 0) doc["hc"] = round(data.sht2Hum * 10) / 10;    // Humedad condensador
+        // === SENSORES ADICIONALES (2 decimales) ===
+        if (data.sht1Temp > -50) doc["te"] = round(data.sht1Temp * 100) / 100; // Temp evaporador
+        if (data.sht1Hum >= 0) doc["he"] = round(data.sht1Hum * 100) / 100;    // Humedad evaporador
+        if (data.sht2Temp > -50) doc["tc"] = round(data.sht2Temp * 100) / 100; // Temp condensador
+        if (data.sht2Hum >= 0) doc["hc"] = round(data.sht2Hum * 100) / 100;    // Humedad condensador
 
-        // === CÁLCULOS DERIVADOS ===
-        if (data.dewPoint > -50) doc["dp"] = round(data.dewPoint * 10) / 10; // Punto de rocío
-        if (data.absHumidity > 0) doc["ha"] = round(data.absHumidity * 1000) / 1000; // Humedad absoluta
+        // === CÁLCULOS DERIVADOS (2 decimales) ===
+        if (data.dewPoint > -50) doc["dp"] = round(data.dewPoint * 100) / 100; // Punto de rocío
+        if (data.absHumidity > 0) doc["ha"] = round(data.absHumidity * 100) / 100; // Humedad absoluta
 
-        // === DATOS ELÉCTRICOS ===
-        if (data.voltage >= 0) doc["v"] = round(data.voltage * 10) / 10; // Voltaje
-        if (data.current >= 0) doc["c"] = round(data.current * 100) / 100; // Corriente
-        if (data.power >= 0) doc["po"] = round(data.power);              // Potencia
-        if (data.energy >= 0) doc["e"] = round(data.energy * 10) / 10;   // Energía
+        // === DATOS ELÉCTRICOS (2 decimales) ===
+        Serial.println("MQTT DEBUG - Preparando datos eléctricos para envío:");
+        if (!isnan(data.voltage)) {
+            doc["v"] = round(data.voltage * 100) / 100; // Voltaje
+            Serial.print("MQTT DEBUG - Voltaje a enviar: ");
+            Serial.println(round(data.voltage * 100) / 100);
+        }
+        if (!isnan(data.current)) {
+            doc["c"] = round(data.current * 100) / 100; // Corriente
+            Serial.print("MQTT DEBUG - Corriente a enviar: ");
+            Serial.println(round(data.current * 100) / 100);
+        }
+        if (!isnan(data.power)) {
+            doc["po"] = round(data.power * 100) / 100;  // Potencia
+            Serial.print("MQTT DEBUG - Potencia a enviar: ");
+            Serial.println(round(data.power * 100) / 100);
+        }
+        if (!isnan(data.energy)) {
+            doc["e"] = round(data.energy * 100) / 100; // Energía en Wh con 2 decimales
+            Serial.print("MQTT DEBUG - Energía a enviar: ");
+            Serial.print(data.energy, 2);
+            Serial.println(" Wh");
+        }
 
         // === TIMESTAMP ===
         DateTime now = rtc.now();
@@ -244,6 +358,11 @@ public:
             Serial.println("❌ Error JSON");
             return;
         }
+
+        // Mostrar JSON completo antes de enviar
+        Serial.println("📤 MQTT JSON COMPLETO A ENVIAR:");
+        Serial.println(mqttBuffer);
+        Serial.println("=====================================");
 
         // Enviar con QoS 1 para mayor confiabilidad
         bool success = mqttClient.publish(topic_data, mqttBuffer, false); // QoS 0 para velocidad

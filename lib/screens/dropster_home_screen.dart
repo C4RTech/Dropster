@@ -62,7 +62,7 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
           aguaGenerada = (data['aguaAlmacenada'] ?? 0.0).toDouble();
           tankLevel = (aguaGenerada / 10.0).clamp(0.0, 1.0);
           energyToday = (data['energia'] ?? 0.0).toDouble();
-          
+
           // Actualizar gráfica con datos reales del ESP32
           int hour = DateTime.now().hour;
           if (energyToday > 0) {
@@ -87,11 +87,11 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
         return;
       }
     }
-    
+
     final command = isSystemOn ? "OFF" : "ON";
     print('Enviando comando: $command');
     await _mqttService.publishCommand(command);
-    
+
     setState(() {
       isSystemOn = !isSystemOn;
     });
@@ -101,7 +101,6 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
   Widget build(BuildContext context) {
     final colorPrimary = Theme.of(context).colorScheme.primary;
     final colorAccent = Theme.of(context).colorScheme.secondary;
-    final colorBg = Theme.of(context).colorScheme.background;
     final colorText = Theme.of(context).colorScheme.onBackground;
     return Scaffold(
       appBar: AppBar(
@@ -146,7 +145,8 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
     );
   }
 
-  Widget _buildTankLevelCard(Color colorPrimary, Color colorAccent, Color colorText) {
+  Widget _buildTankLevelCard(
+      Color colorPrimary, Color colorAccent, Color colorText) {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 2,
@@ -157,14 +157,41 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
           children: [
             Row(
               children: [
-                Icon(Icons.water_drop, color: colorAccent, size: 32),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 500),
+                  width: 32,
+                  height: 32,
+                  transform: Matrix4.identity()
+                    ..scale(tankLevel > 0 ? 1.0 : 0.8),
+                  child: Opacity(
+                    opacity: tankLevel > 0 ? 1.0 : 0.4,
+                    child: Image.asset(
+                      'lib/assets/images/Dropster_simbolo.png',
+                      fit: BoxFit.contain,
+                      color: tankLevel > 0
+                          ? (tankLevel > 0.8
+                              ? colorAccent
+                              : colorAccent.withOpacity(0.7))
+                          : colorAccent.withOpacity(0.3),
+                    ),
+                  ),
+                ),
                 const SizedBox(width: 12),
-                Text('Nivel del tanque', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: colorText)),
+                Text('Nivel del tanque',
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: colorText)),
                 const Spacer(),
-                Text('${(tankLevel * 100).toStringAsFixed(0)}%', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF42A5F5))),
+                Text('${(tankLevel * 100).toStringAsFixed(0)}%',
+                    style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF42A5F5))),
               ],
             ),
             const SizedBox(height: 12),
+            // Barra de progreso sin porcentaje encima
             LinearProgressIndicator(
               value: tankLevel,
               minHeight: 12,
@@ -175,7 +202,9 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
             if (tankLevel > 0.95)
               Padding(
                 padding: const EdgeInsets.only(top: 8.0),
-                child: Text('¡Tanque lleno!', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                child: Text('¡Tanque lleno!',
+                    style: TextStyle(
+                        color: Colors.red, fontWeight: FontWeight.bold)),
               ),
           ],
         ),
@@ -183,7 +212,8 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
     );
   }
 
-  Widget _buildSystemStatusCard(Color colorPrimary, Color colorAccent, Color colorText) {
+  Widget _buildSystemStatusCard(
+      Color colorPrimary, Color colorAccent, Color colorText) {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 2,
@@ -191,20 +221,26 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
         padding: const EdgeInsets.all(20),
         child: Row(
           children: [
-            Icon(isSystemOn ? Icons.power : Icons.power_off, color: isSystemOn ? colorAccent : Colors.red, size: 40),
+            Icon(isSystemOn ? Icons.power : Icons.power_off,
+                color: isSystemOn ? colorAccent : Colors.red, size: 40),
             const SizedBox(width: 16),
             Expanded(
               child: Text(
                 isSystemOn ? 'Sistema Encendido' : 'Sistema Apagado',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: colorText),
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: colorText),
               ),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: isSystemOn ? colorAccent : Colors.red,
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
               ),
               onPressed: _toggleSystem,
               child: Text(isSystemOn ? 'Apagar' : 'Encender'),
@@ -215,7 +251,8 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
     );
   }
 
-  Widget _buildEnergyCard(Color colorPrimary, Color colorAccent, Color colorText) {
+  Widget _buildEnergyCard(
+      Color colorPrimary, Color colorAccent, Color colorText) {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 2,
@@ -225,16 +262,25 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
           children: [
             Icon(Icons.flash_on, color: colorAccent, size: 32),
             const SizedBox(width: 12),
-            Text('Energía hoy', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: colorText)),
+            Text('Energía hoy',
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: colorText)),
             const Spacer(),
-            Text('${energyToday.toStringAsFixed(2)} kWh', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: colorPrimary)),
+            Text('${energyToday.toStringAsFixed(2)} kWh',
+                style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: colorPrimary)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildTempCard(Color colorPrimary, Color colorAccent, Color colorText) {
+  Widget _buildTempCard(
+      Color colorPrimary, Color colorAccent, Color colorText) {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 2,
@@ -244,16 +290,25 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
           children: [
             Icon(Icons.thermostat, color: colorAccent, size: 32),
             const SizedBox(width: 12),
-            Text('Temp. ambiente', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: colorText)),
+            Text('Temp. ambiente',
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: colorText)),
             const Spacer(),
-            Text('${tempAmb.toStringAsFixed(1)} °C', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: colorPrimary)),
+            Text('${tempAmb.toStringAsFixed(1)} °C',
+                style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: colorPrimary)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildHumRelCard(Color colorPrimary, Color colorAccent, Color colorText) {
+  Widget _buildHumRelCard(
+      Color colorPrimary, Color colorAccent, Color colorText) {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 2,
@@ -263,16 +318,25 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
           children: [
             Icon(Icons.water, color: colorAccent, size: 32),
             const SizedBox(width: 12),
-            Text('Humedad relativa', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: colorText)),
+            Text('Humedad relativa',
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: colorText)),
             const Spacer(),
-            Text('${humRel.toStringAsFixed(1)} %', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: colorPrimary)),
+            Text('${humRel.toStringAsFixed(1)} %',
+                style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: colorPrimary)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildHumAbsCard(Color colorPrimary, Color colorAccent, Color colorText) {
+  Widget _buildHumAbsCard(
+      Color colorPrimary, Color colorAccent, Color colorText) {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 2,
@@ -282,16 +346,25 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
           children: [
             Icon(Icons.grain, color: colorAccent, size: 32),
             const SizedBox(width: 12),
-            Text('Humedad absoluta', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: colorText)),
+            Text('Humedad absoluta',
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: colorText)),
             const Spacer(),
-            Text('${humAbs.toStringAsFixed(1)} g/m³', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: colorPrimary)),
+            Text('${humAbs.toStringAsFixed(1)} g/m³',
+                style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: colorPrimary)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildLineChartCard(Color colorPrimary, Color colorAccent, Color colorText) {
+  Widget _buildLineChartCard(
+      Color colorPrimary, Color colorAccent, Color colorText) {
     return Card(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       elevation: 2,
@@ -300,7 +373,11 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Energía vs Agua generada (hoy)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: colorText)),
+            Text('Energía vs Agua generada (hoy)',
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: colorText)),
             const SizedBox(height: 16),
             SizedBox(
               height: 180,
@@ -309,7 +386,8 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
                   gridData: FlGridData(show: true, drawVerticalLine: false),
                   titlesData: FlTitlesData(
                     leftTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: true, reservedSize: 40),
+                      sideTitles:
+                          SideTitles(showTitles: true, reservedSize: 40),
                     ),
                     bottomTitles: AxisTitles(
                       sideTitles: SideTitles(
@@ -318,7 +396,9 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
                         getTitlesWidget: (value, meta) {
                           int hour = value.toInt();
                           if (hour % 2 == 0 && hour >= 0 && hour <= 23) {
-                            return Text('$hour', style: TextStyle(fontSize: 12, color: colorText));
+                            return Text('$hour',
+                                style:
+                                    TextStyle(fontSize: 12, color: colorText));
                           }
                           return const SizedBox.shrink();
                         },
@@ -381,7 +461,8 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
       items: const [
         BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Inicio'),
         BottomNavigationBarItem(icon: Icon(Icons.monitor), label: 'Monitoreo'),
-        BottomNavigationBarItem(icon: Icon(Icons.show_chart), label: 'Gráficas'),
+        BottomNavigationBarItem(
+            icon: Icon(Icons.show_chart), label: 'Gráficas'),
         BottomNavigationBarItem(icon: Icon(Icons.history), label: 'Historial'),
         BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'Ajustes'),
       ],
@@ -389,4 +470,4 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
       onTap: (i) {},
     );
   }
-} 
+}

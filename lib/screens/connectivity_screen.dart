@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
 import '../services/mqtt_hive.dart';
 import '../services/singleton_mqtt_service.dart';
 
@@ -89,7 +88,6 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
   Widget build(BuildContext context) {
     final colorPrimary = Theme.of(context).colorScheme.primary;
     final colorAccent = Theme.of(context).colorScheme.secondary;
-    final colorText = Theme.of(context).colorScheme.onBackground;
     return Scaffold(
       appBar: AppBar(
         title: Text('Conectividad'),
@@ -210,108 +208,6 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
                                 ),
                               ),
                             ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Nueva sección de información de debug MQTT
-                  Card(
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    elevation: 2,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(Icons.bug_report,
-                                  color: colorAccent, size: 28),
-                              SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Debug MQTT',
-                                      style: TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                    SizedBox(height: 8),
-                                    Text(
-                                      'Información de conexión y configuración',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: Colors.white70,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          const Divider(height: 24),
-                          Container(
-                            padding: EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: colorPrimary.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                  color: colorPrimary.withOpacity(0.3)),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Configuración Actual:',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                SizedBox(height: 8),
-                                Text(
-                                  'Broker: ${SingletonMqttService().broker}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.white70,
-                                  ),
-                                ),
-                                Text(
-                                  'Puerto: ${SingletonMqttService().port}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.white70,
-                                  ),
-                                ),
-                                Text(
-                                  'Tópico: ${SingletonMqttService().topic}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.white70,
-                                  ),
-                                ),
-                                SizedBox(height: 8),
-                                Text(
-                                  'Estado: ${SingletonMqttService().mqttConnected ? "CONECTADO" : "DESCONECTADO"}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    color: SingletonMqttService().mqttConnected
-                                        ? Colors.green
-                                        : Colors.red,
-                                  ),
-                                ),
-                              ],
-                            ),
                           ),
                         ],
                       ),
