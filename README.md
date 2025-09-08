@@ -2,29 +2,35 @@
 
 ## Descripción
 
-Dropster es una aplicación móvil desarrollada en Flutter para el control y monitoreo de un sistema AWG (Atmospheric Water Generator). La aplicación permite recibir datos en tiempo real tanto por MQTT, visualizar gráficas históricas, detectar anomalías y gestionar notificaciones.
+Dropster es una aplicación móvil desarrollada en Flutter para el control y monitoreo de un sistema AWG (Atmospheric Water Generator). La aplicación permite recibir datos en tiempo real por MQTT, visualizar gráficas históricas, detectar anomalías y gestionar notificaciones. Incluye funcionalidades avanzadas como notificaciones push locales, conectividad automática, y una arquitectura modular basada en features.
 
 ## Características Principales
 
-### 🔌 **Conectividad Dual**
+### 🔌 **Conectividad Avanzada**
 - **MQTT**: Comunicación por WiFi/internet con broker MQTT
-- Reconexión automática y gestión de estado de conexión
+- **Reconexión automática** y gestión inteligente de estado de conexión
+- **Detección de conectividad** de red (WiFi/Móvil)
+- **Servicio en segundo plano** para mantener conexiones activas
 
-### 📊 **Visualización de Datos**
-- **Pantalla Principal**: Resumen rápido de datos eléctricos y estado del sistema
+### 📊 **Visualización de Datos Completa**
+- **Pantalla Principal**: Resumen rápido de variables y estado del sistema
 - **Gráficas Avanzadas**: Visualización histórica y tiempo real con múltiples variables
 - **Monitoreo Detallado**: Datos organizados por categorías (Ambiente, Eléctrico, Agua)
+- **Reportes Diarios**: Generación automática de reportes de rendimiento
 
-### 🔔 **Sistema de Notificaciones**
-- Detección automática de anomalías en voltaje, corriente y frecuencia
-- Filtros avanzados por tipo, fase y rango de fechas
+### 🔔 **Sistema de Notificaciones Inteligente**
+- Detección automática de anomalías de bajo Voltaje, baja Humedad, alta Temperatura y Tanque de Agua lleno
+- **Notificaciones Push Locales** con sonidos y vibración
+- Filtros avanzados por tipo y rango de fechas
 - Historial completo de eventos y alertas
+- **Servicio de Notificaciones** dedicado para gestión eficiente
 
 ### ⚙️ **Configuración Completa**
 - Valores nominales personalizables
 - Configuración de conectividad MQTT
-- Gestión de almacenamiento de datos
+- Gestión de almacenamiento de datos con Hive
 - Ajustes de visualización de gráficas
+- **Gestión del Ciclo de Vida** de la aplicación
 
 ## Pantallas Implementadas
 
@@ -106,6 +112,26 @@ Dropster es una aplicación móvil desarrollada en Flutter para el control y mon
    - Cliente MQTT básico
    - Conexión y suscripción a tópicos
 
+4. **BackgroundMqttService** (`lib/services/background_mqtt_service.dart`)
+   - Servicio MQTT en segundo plano
+   - Mantiene conexiones activas cuando la app está en background
+   - Gestión automática de reconexión
+
+5. **NotificationService** (`lib/services/notification_service.dart`)
+   - Gestión de notificaciones push locales
+   - Configuración de canales de notificación
+   - Manejo de permisos de notificación
+
+6. **DailyReportService** (`lib/services/daily_report_service.dart`)
+   - Generación automática de reportes diarios
+   - Análisis de rendimiento del sistema
+   - Exportación de datos históricos
+
+7. **AppLifecycleService** (`lib/services/app_lifecycle_service.dart`)
+   - Gestión del ciclo de vida de la aplicación
+   - Control de estados (foreground/background)
+   - Optimización de recursos según estado
+
 ### 🎨 **Widgets Personalizados**
 
 1. **CircularCard** (`lib/widgets/circular_card.dart`)
@@ -113,19 +139,55 @@ Dropster es una aplicación móvil desarrollada en Flutter para el control y mon
    - Versiones animadas y con estado
    - Personalización completa de colores y tamaños
 
+2. **DropsterAnimatedSymbol** (`lib/widgets/dropster_animated_symbol.dart`)
+   - Símbolo animado de gota de agua
+   - Animaciones fluidas y personalizables
+   - Integración con tema ecológico
+
+3. **ProfessionalWaterDrop** (`lib/widgets/professional_water_drop.dart`)
+   - Representación profesional de gota de agua
+   - Efectos visuales avanzados
+   - Diseño optimizado para interfaces modernas
+
 ## Configuración del Proyecto
 
 ### 📋 **Dependencias Principales**
 
 ```yaml
 dependencies:
-  mqtt_client: ^10.0.0           # Cliente MQTT
-  hive_flutter: ^1.1.0           # Almacenamiento local
-  fl_chart: ^0.63.0              # Gráficas
-  provider: ^6.0.5               # Gestión de estado
-  flutter_riverpod: ^2.0.0       # Estado avanzado
-  permission_handler: ^10.4.0    # Permisos
-  intl: ^0.18.1                  # Formateo de fechas
+  flutter:
+    sdk: flutter
+
+  # Comunicación y Conectividad
+  mqtt_client: ^10.0.0                    # Cliente MQTT
+  connectivity_plus: ^6.0.3               # Detección de conectividad
+
+  # Almacenamiento y Persistencia
+  hive: ^2.2.3                            # Base de datos NoSQL
+  hive_flutter: ^1.1.0                    # Flutter integration
+  shared_preferences: ^2.2.2              # Almacenamiento simple
+  path_provider: ^2.1.0                   # Gestión de rutas
+
+  # UI y Visualización
+  fl_chart: ^0.63.0                       # Gráficas avanzadas
+  flutter_svg: ^2.0.9                     # Soporte SVG
+  cupertino_icons: ^1.0.8                 # Iconos iOS
+
+  # Gestión de Estado
+  provider: ^6.0.5                        # Provider pattern
+  flutter_riverpod: ^2.0.0                # Riverpod state management
+  get: ^4.7.2                             # GetX framework
+
+  # Utilidades
+  permission_handler: ^12.0.0             # Gestión de permisos
+  intl: ^0.18.1                           # Formateo de fechas
+  flutter_local_notifications: ^17.2.0    # Notificaciones locales
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0                    # Linting
+  flutter_launcher_icons: ^0.13.1         # Generación de iconos
 ```
 
 ### 🔧 **Configuración Inicial**
@@ -139,7 +201,7 @@ dependencies:
    - Internet (para MQTT)
 
 3. **Configurar MQTT**:
-   - Broker: `broker.emqx.io` (por defecto)
+   - Broker: `test.mosquitto.org` (por defecto)
    - Puerto: `1883`
    - Tópico: `dropster/data`
 
@@ -152,12 +214,7 @@ dependencies:
    - Seleccionar Conectar MQTT 
    - Configurar parámetros de conexión
 
-2. **Configurar valores nominales**:
-   - Ir a "Configuración"
-   - Establecer voltaje y corriente nominales
-   - Guardar configuración
-
-3. **Monitorear datos**:
+2. **Monitorear datos**:
    - Ver datos en tiempo real en "Home"
    - Analizar tendencias en "Gráficas"
    - Revisar anomalías en "Notificaciones"
@@ -177,7 +234,7 @@ La aplicación utiliza navegación inferior con 6 secciones principales:
 ### 💾 **Almacenamiento Local**
 - **Hive**: Base de datos NoSQL local
 - **Boxes**: 
-  - `energyData`: Datos históricos
+  - `Data`: Datos históricos
   - `settings`: Configuraciones
   - `anomalies`: Notificaciones
 
@@ -188,18 +245,42 @@ La aplicación utiliza navegación inferior con 6 secciones principales:
 
 ### 🎨 **UI/UX**
 - **Material Design 3**: Interfaz moderna
-- **Temas**: Claro y oscuro
+- **Temas**: Verde Agua Ecologico
 - **Responsive**: Adaptable a diferentes tamaños
 - **Animaciones**: Transiciones suaves
 
-## Desarrollo y Contribución
+## Arquitectura del Proyecto
 
-### 🛠️ **Estructura del Proyecto**
+### 🏗️ **Arquitectura Basada en Features**
+
+El proyecto utiliza una arquitectura modular organizada por features, siguiendo las mejores prácticas de desarrollo Flutter:
 
 ```
 lib/
-├── main.dart                 # Punto de entrada
-├── screens/                  # Pantallas de la aplicación
+├── main.dart                          # Punto de entrada
+├── features/                          # Arquitectura modular por features
+│   ├── auth/                          # Autenticación (futuro)
+│   ├── connectivity/                  # Gestión de conectividad
+│   │   ├── data/                      # Capa de datos
+│   │   ├── domain/                    # Lógica de dominio
+│   │   └── presentation/              # Capa de presentación
+│   ├── home/                          # Pantalla principal
+│   │   ├── data/
+│   │   ├── domain/
+│   │   └── presentation/
+│   ├── monitoring/                    # Monitoreo del sistema
+│   │   ├── data/
+│   │   ├── domain/
+│   │   └── presentation/
+│   ├── notifications/                 # Sistema de notificaciones
+│   │   ├── data/
+│   │   ├── domain/
+│   │   └── presentation/
+│   └── settings/                      # Configuraciones
+│       ├── data/
+│       ├── domain/
+│       └── presentation/
+├── screens/                           # Pantallas principales
 │   ├── home_screen.dart
 │   ├── connectivity_screen.dart
 │   ├── graph_screen.dart
@@ -208,29 +289,109 @@ lib/
 │   ├── settings_screen.dart
 │   ├── info_screen.dart
 │   └── dropster_home_screen.dart
-├── services/                 # Servicios y lógica de negocio
+├── services/                          # Servicios globales
 │   ├── mqtt_hive.dart
-│   └── singleton_mqtt_service.dart
-├── widgets/                  # Widgets personalizados
-│   └── circular_card.dart
-└── assets/                   # Recursos estáticos
+│   ├── singleton_mqtt_service.dart
+│   ├── background_mqtt_service.dart
+│   ├── notification_service.dart
+│   ├── daily_report_service.dart
+│   ├── app_lifecycle_service.dart
+│   └── mqtt_service.dart
+├── widgets/                           # Widgets reutilizables
+│   ├── circular_card.dart
+│   ├── dropster_animated_symbol.dart
+│   └── professional_water_drop.dart
+├── shared/                            # Código compartido
+│   └── models/                        # Modelos de datos
+├── config/                            # Configuraciones
+└── assets/                            # Recursos estáticos
     └── images/
 ```
 
-### 📝 **Próximas Mejoras**
+### 📁 **Separación por Capas**
 
-- [ ] Notificaciones push
-- [ ] Exportación de datos
-- [ ] Dashboard personalizable
-- [ ] Integración con APIs externas
-- [ ] Modo offline mejorado
+Cada feature sigue el patrón de Clean Architecture:
+- **Data**: Repositorios, APIs, almacenamiento local
+- **Domain**: Casos de uso, entidades, lógica de negocio
+- **Presentation**: Widgets, controladores, estado de UI
 
-## Autor
+### 📝 **Estado Actual - V1.0.0**
 
-**Carlos Guedez** - Estudiante de Ingeniería Electrónica
-- Email: carlosguedez7323@gmail.com
-- Tutor: Dr. Gabriel Noriega
+**✅ Implementado:**
+- Sistema completo de monitoreo AWG
+- Conectividad MQTT con reconexión automática
+- Notificaciones push locales
+- Arquitectura modular por features
+- Almacenamiento local con Hive
+- Gráficas avanzadas en tiempo real
+- Detección automática de anomalías
+- Reportes diarios automáticos
+- Servicio en segundo plano
+- Gestión del ciclo de vida de la app
 
-## Licencia
+### 🚀 **Próximas Mejoras Planificadas**
 
-Este proyecto es parte de un trabajo de grado para optar por el título de Ingeniería Electrónica. En la Universidad Nacional Experimental Politecnica "Antonio Jose de Sucre" UNEXPO
+- [ ] **Autenticación de Usuario**
+  - Sistema de login/registro
+  - Perfiles de usuario múltiples
+  - Sincronización en la nube
+
+- [ ] **Dashboard Personalizable**
+  - Widgets configurables
+  - Temas personalizados
+  - Layouts guardados
+
+- [ ] **Exportación Avanzada**
+  - Exportación a PDF/Excel
+  - Reportes programados
+  - Compartir datos
+
+- [ ] **Integración IoT Expandida**
+  - Múltiples dispositivos ESP32
+  - Control remoto del sistema
+  - Actualizaciones OTA
+
+- [ ] **Análisis Predictivo**
+  - Machine Learning para predicción de fallos
+  - Alertas preventivas
+  - Optimización automática
+
+- [ ] **Modo Offline Mejorado**
+  - Sincronización cuando recupera conexión
+  - Cache inteligente de datos
+  - Funcionalidad limitada offline
+
+## 📊 Información del Proyecto
+
+### **Versión Actual**
+- **Versión**: 1.0.0+1
+- **Última Actualización**: Septiembre 2025
+- **Estado**: Producción Ready
+- **Repositorio**: [GitHub - Dropster](https://github.com/C4RTech/Dropster)
+- **Etiqueta**: Dropster-V1.0
+
+### **Compatibilidad**
+- **Flutter**: ^3.6.0
+- **Dart**: ^3.6.0
+- **Android**: API 21+ (Android 5.0+)
+- **iOS**: 12.0+
+- **Windows**: 10+
+- **Linux**: Ubuntu 18.04+
+- **macOS**: 10.14+
+
+## 👨‍💻 Autor y Desarrollo
+
+**Carlos Guedez** - Desarrollador Principal
+- 🎓 Estudiante de Ingeniería Electrónica
+- 📧 Email: carlosguedez7323@gmail.com
+- 👨‍🏫 Tutor: Dr. Gabriel Noriega
+- 🏛️ Universidad: Universidad Nacional Experimental Politécnica "Antonio José de Sucre" (UNEXPO)
+
+### **Contexto Académico**
+Este proyecto es parte de un trabajo de grado para optar por el título de Ingeniería Electrónica, desarrollado como parte del programa de formación en la UNEXPO.
+
+## 📄 Licencia
+
+Este proyecto es de carácter académico y educativo. Todos los derechos reservados © 2025 Carlos Guedez.
+
+**Nota**: Este software está diseñado exclusivamente para fines educativos y de investigación. No se permite su uso comercial sin autorización expresa del autor.
