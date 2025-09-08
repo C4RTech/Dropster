@@ -218,16 +218,18 @@ class _HomeScreenState extends State<HomeScreen>
         // Energía ya viene en Wh desde ESP32, no necesita conversión
         print(
             '[HOME ENERGIA DEBUG] ✅ Energía recibida en UI: ${value}Wh (tipo: ${value.runtimeType})');
-        
+
         // Para energía, usar más decimales si el valor es muy pequeño
         if (value < 1.0 && value > 0) {
-          print('[HOME ENERGIA DEBUG] Valor pequeño detectado: ${value}Wh, usando 3 decimales');
+          print(
+              '[HOME ENERGIA DEBUG] Valor pequeño detectado: ${value}Wh, usando 3 decimales');
           return value.toStringAsFixed(3); // 3 decimales para valores pequeños
         } else {
           return value.toStringAsFixed(2); // 2 decimales para valores normales
         }
       }
-      return value.toStringAsFixed(2); // Todos los demás valores con 2 decimales
+      return value
+          .toStringAsFixed(2); // Todos los demás valores con 2 decimales
     }
     return value.toString();
   }
@@ -536,15 +538,29 @@ class _HomeScreenState extends State<HomeScreen>
                     animationDuration: const Duration(milliseconds: 800),
                   ),
                   const SizedBox(height: 16),
-                  // Título simple sin porcentaje
-                  Text(
-                    'Nivel del Tanque',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: colorText,
-                      letterSpacing: 0.5,
-                    ),
+                  // Título con porcentaje debajo
+                  Column(
+                    children: [
+                      Text(
+                        'Nivel del Tanque',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: colorText,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '${(tankLevel * 100).toStringAsFixed(1)}%',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: colorAccent,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
