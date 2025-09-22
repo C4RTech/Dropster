@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -37,6 +38,11 @@ class MqttService {
   static const Duration _connectionCheckInterval = Duration(seconds: 10);
   static const Duration _pingInterval = Duration(seconds: 30);
   static const Duration _backgroundPingInterval = Duration(seconds: 60);
+
+  // Stream para publicar cambios de modo y suscribirse desde la UI
+  final StreamController<String> _modeController =
+      StreamController<String>.broadcast();
+  Stream<String> get modeStream => _modeController.stream;
 
   /// Devuelve true si el cliente está conectado al broker
   bool get isConnected =>
@@ -243,12 +249,23 @@ class MqttService {
 
   /// Prueba la conectividad de red básica
   Future<void> _testNetworkConnectivity() async {
-    // Intentar hacer ping a un servidor público
-    // Usamos una URL simple para verificar conectividad
-    // Nota: En Flutter, podemos usar paquetes como connectivity_plus para mejor detección
-    print('[MQTT DEBUG] Probando conectividad con google.com...');
-    // Por simplicidad, asumimos que si podemos crear un cliente MQTT, hay red
-    // En una implementación completa, usaríamos connectivity_plus
+    // Intentar resolver un host público para validar conectividad de red.
+    // Evitar paquetes extra; usar lookup con timeout.
+    print('[MQTT DEBUG] Probando conectividad (lookup google.com)...');
+    try {
+      final result = await InternetAddress.lookup('google.com')
+          .timeout(const Duration(seconds: 5));
+      if (result.isEmpty || result[0].rawAddress.isEmpty) {
+        throw Exception('Lookup regresó vacío');
+      }
+      print('[MQTT DEBUG] Conectividad de red OK: ${result[0].address}');
+    } on TimeoutException catch (e) {
+      print('[MQTT DEBUG] Timeout en verificación de red: $e');
+      throw Exception('Timeout verificando conectividad');
+    } catch (e) {
+      print('[MQTT DEBUG] Error de conectividad de red: $e');
+      throw Exception('No hay conectividad de red disponible');
+    }
   }
 
   /// Intenta conectar a un broker específico
@@ -324,7 +341,7 @@ class MqttService {
         print(
             '[MQTT DEBUG] Mensaje recibido en tópico $topicReceived: $payload');
 
-        // Si el mensaje es del tópico esperado, lo procesa y guarda
+        // Si el mensaje es del tópico esperado (datos)
         if (topicReceived == topic) {
           print('[MQTT DEBUG] Procesando mensaje del tópico correcto: $topic');
 
@@ -341,18 +358,41 @@ class MqttService {
             print(
                 '[MQTT DEBUG] ERROR: hiveService es null, no se pueden procesar datos');
           }
+        }
+        // Si el mensaje viene por el tópico de estado, procesar modo/estado
+        else if (topicReceived == 'dropster/status') {
+          print('[MQTT DEBUG] Mensaje de STATUS recibido: $payload');
+          try {
+            final Map<String, dynamic> json = jsonDecode(payload);
+            if (json.containsKey('mode')) {
+              final String mode = json['mode'].toString();
+              print('[MQTT DEBUG] Modo recibido: $mode');
+              _modeController.add(mode);
+            }
+          } catch (e) {
+            // Si no es JSON, aceptar payloads simples como "MODE_AUTO" o "MODE_MANUAL"
+            if (payload.contains('MODE_AUTO')) {
+              _modeController.add('AUTO');
+            } else if (payload.contains('MODE_MANUAL')) {
+              _modeController.add('MANUAL');
+            }
+          }
         } else {
           print(
-              '[MQTT DEBUG] Mensaje ignorado - tópico: $topicReceived, esperado: $topic');
+              '[MQTT DEBUG] Mensaje ignorado - tópico: $topicReceived, esperado: $topic o dropster/status');
         }
       } catch (e) {
         print('[MQTT DEBUG] Error procesando mensaje MQTT: $e');
       }
     });
 
-    // Se suscribe al tópico de datos de energía
-    client!.subscribe(topic, MqttQos.atMostOnce);
-    print('[MQTT DEBUG] Suscrito al tópico $topic');
+    // Se suscribe al tópico de datos de energía con QoS 1 (atLeastOnce) para mayor fiabilidad
+    client!.subscribe(topic, MqttQos.atLeastOnce);
+    print('[MQTT DEBUG] Suscrito al tópico $topic (QoS 1)');
+
+    // También suscribirse al tópico de estado para recibir modo y otros estados
+    client!.subscribe('dropster/status', MqttQos.atLeastOnce);
+    print('[MQTT DEBUG] Suscrito al tópico dropster/status (QoS 1)');
   }
 
   /// Publica un comando al tópico de control del ESP32
@@ -361,8 +401,8 @@ class MqttService {
       try {
         final builder = MqttClientPayloadBuilder();
         builder.addString(command);
-        client!.publishMessage('dropster/control', MqttQos.atMostOnce,
-            builder.payload!); // Topic corregido
+        client!.publishMessage('dropster/control', MqttQos.atLeastOnce,
+            builder.payload!); // Topic corregido, usar QoS 1 para fiabilidad
         print('[MQTT DEBUG] Comando enviado: $command');
       } catch (e) {
         print('[MQTT DEBUG] Error enviando comando: $e');
@@ -372,6 +412,14 @@ class MqttService {
       print('[MQTT DEBUG] No se puede enviar comando: cliente no conectado');
       throw Exception('MQTT client not connected');
     }
+  }
+
+  /// Publicar cambio de modo (AUTO/MANUAL) por MQTT
+  Future<void> publishMode(String mode) async {
+    // mode = "AUTO" o "MANUAL"
+    final cmd = (mode.toUpperCase() == 'AUTO') ? 'MODE AUTO' : 'MODE MANUAL';
+    await publishCommand(cmd);
+    print('[MQTT DEBUG] publishMode: $cmd');
   }
 
   /// Desconecta el cliente del broker MQTT y limpia el objeto cliente.

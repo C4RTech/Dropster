@@ -52,9 +52,9 @@ class _GraphScreenState extends State<GraphScreen> {
       keys: [
         "temperaturaAmbiente",
         "temperaturaEvaporador",
-        "temperaturaCondensador"
+        "temperaturaCompresor"
       ],
-      seriesTitles: ["Ambiente", "Evaporador", "Condensador"],
+      seriesTitles: ["Ambiente", "Evaporador", "Compresor"],
       colors: [
         Colors.orange.shade600,
         Colors.red.shade600,
@@ -65,8 +65,8 @@ class _GraphScreenState extends State<GraphScreen> {
     ),
     _MultiGraphGroup(
       title: "Humedad",
-      keys: ["humedadRelativa", "humedadEvaporador", "humedadCondensador"],
-      seriesTitles: ["Ambiente", "Evaporador", "Condensador"],
+      keys: ["humedadRelativa", "humedadEvaporador"],
+      seriesTitles: ["Ambiente", "Evaporador"],
       colors: [
         Colors.cyan.shade600,
         Colors.teal.shade600,

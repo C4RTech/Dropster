@@ -40,8 +40,8 @@ class _HomeScreenState extends State<HomeScreen>
   // Nivel del tanque real desde ESP32
   double tankLevel = 0.0;
 
-  // Control del sistema AWG
-  bool isSystemOn = false;
+  // Control del sistema AWG - ahora basado en estado real del ESP32
+  int compressorState = 0; // 0 = OFF, 1 = ON - Estado real del ESP32
   final MqttService _mqttService = MqttService();
 
   /// Obtiene el valor de la batería desde el notifier global
@@ -93,6 +93,16 @@ class _HomeScreenState extends State<HomeScreen>
       } else {
         print('[UI ENERGIA DEBUG] ⚠️ Energía NO presente en notifier');
         print('[UI ENERGIA DEBUG] Datos actuales: $data');
+      }
+
+      // Actualizar estado del compresor desde MQTT
+      final newCompressorState = data['estadoCompresor'] ?? 0;
+      if (newCompressorState != compressorState && mounted) {
+        setState(() {
+          compressorState = newCompressorState;
+          print(
+              '[UI DEBUG] Estado del compresor actualizado a: $compressorState');
+        });
       }
 
       // Obtener capacidad del tanque desde configuración
@@ -209,7 +219,7 @@ class _HomeScreenState extends State<HomeScreen>
         print(
             '[HOME ENERGIA DEBUG] Fuente de datos: ${data['source'] ?? 'desconocida'}');
         print('[HOME ENERGIA DEBUG] Todos los datos: $data');
-        return 'Sin datos MQTT';
+        return '--';
       }
       return '--';
     }
@@ -344,11 +354,11 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _toggleSystem() async {
-    final command = isSystemOn ? "OFF" : "ON";
+    // Enviar comando opuesto al estado actual
+    final command = compressorState == 1 ? "LED4_OFF" : "LED4_ON";
     await _mqttService.publishCommand(command);
-    setState(() {
-      isSystemOn = !isSystemOn;
-    });
+    // No cambiamos el estado local aquí, esperamos que llegue por MQTT
+    print('[UI DEBUG] Enviando comando: $command');
   }
 
   @override
@@ -515,7 +525,7 @@ class _HomeScreenState extends State<HomeScreen>
                     Icon(Icons.info_outline, color: Colors.orange, size: 20),
                     const SizedBox(width: 8),
                     Text(
-                      'Esperando conexión con ESP32...',
+                      'Esperando conexión con DropsterAWG',
                       style: TextStyle(
                         color: Colors.orange,
                         fontWeight: FontWeight.w500,
@@ -581,14 +591,16 @@ class _HomeScreenState extends State<HomeScreen>
                   child: Row(
                     children: [
                       Icon(
-                        isSystemOn ? Icons.power : Icons.power_off,
-                        color: isSystemOn ? colorAccent : Colors.red,
+                        compressorState == 1 ? Icons.power : Icons.power_off,
+                        color: compressorState == 1 ? colorAccent : Colors.red,
                         size: 40,
                       ),
                       const SizedBox(width: 16),
                       Expanded(
                         child: Text(
-                          isSystemOn ? 'Sistema Encendido' : 'Sistema Apagado',
+                          compressorState == 1
+                              ? 'Sistema Encendido'
+                              : 'Sistema Apagado',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -599,7 +611,7 @@ class _HomeScreenState extends State<HomeScreen>
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor:
-                              isSystemOn ? Colors.red : colorAccent,
+                              compressorState == 1 ? Colors.red : colorAccent,
                           foregroundColor: Colors.white,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(15),
@@ -610,7 +622,7 @@ class _HomeScreenState extends State<HomeScreen>
                         ),
                         onPressed: _toggleSystem,
                         child: Text(
-                          isSystemOn ? 'Apagar' : 'Encender',
+                          compressorState == 1 ? 'Apagar' : 'Encender',
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 16,

@@ -86,9 +86,8 @@ class MqttHiveService {
         'temperaturaEvaporador':
             jsonData['te'] ?? 0.0, // te = temperatura evaporador
         'humedadEvaporador': jsonData['he'] ?? 0.0, // he = humedad evaporador
-        'temperaturaCondensador':
-            jsonData['tc'] ?? 0.0, // tc = temperatura condensador
-        'humedadCondensador': jsonData['hc'] ?? 0.0, // hc = humedad condensador
+        'temperaturaCompresor':
+            jsonData['tc'] ?? 0.0, // tc = temperatura compresor
 
         // === CÁLCULOS DERIVADOS ===
         'puntoRocio': jsonData['dp'] ?? 0.0, // dp = punto de rocío
@@ -99,6 +98,10 @@ class MqttHiveService {
         'corriente': jsonData['c'] ?? 0.0, // c = corriente
         'potencia': jsonData['po'] ?? 0.0, // po = potencia
         'energia': jsonData['e'] ?? 0.0, // e = energia en Wh
+
+        // === ESTADO DEL COMPRESOR ===
+        'estadoCompresor':
+            jsonData['cs'] ?? 0, // cs = estado compresor (0=OFF, 1=ON)
 
         // === TIMESTAMP ===
         'datetime': jsonData['ts']?.toString() ?? '', // ts = timestamp unix
@@ -268,7 +271,7 @@ class MqttHiveService {
     // === ACTUALIZACIÓN INMEDIATA PARA VALORES ELÉCTRICOS ===
     // Asegurar que voltaje, corriente, potencia y energía se actualicen inmediatamente
     final currentNotifier = SingletonMqttService().notifier.value;
-    
+
     // Crear nuevo mapa con valores eléctricos forzados
     final updatedData = {
       ...currentNotifier,
@@ -284,16 +287,21 @@ class MqttHiveService {
 
     final newNotifierValue = SingletonMqttService().notifier.value;
     print('[MQTT DEBUG] - Campos después: ${newNotifierValue.length}');
-    
+
     // Debug específico de valores eléctricos
     print('[MQTT DEBUG] ⚡ VALORES ELÉCTRICOS ACTUALIZADOS:');
     print('[MQTT DEBUG]   - Voltaje: ${newNotifierValue['voltaje']}V');
     print('[MQTT DEBUG]   - Corriente: ${newNotifierValue['corriente']}A');
     print('[MQTT DEBUG]   - Potencia: ${newNotifierValue['potencia']}W');
     print('[MQTT DEBUG]   - Energía: ${newNotifierValue['energia']}Wh');
-    
+
     print('[MQTT DEBUG] ✅ Notifier actualizado correctamente');
     print('[MQTT DEBUG] ===== FIN PROCESAMIENTO DATOS =====');
+  }
+
+  /// Obtener estado del compresor (0=OFF, 1=ON)
+  int getCompressorState() {
+    return SingletonMqttService().notifier.value['estadoCompresor'] ?? 0;
   }
 
   /// Stream para que otras partes de la app puedan escuchar nuevos datos históricos.

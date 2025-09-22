@@ -236,3 +236,4 @@ class TankLevelPainter extends CustomPainter {
            oldDelegate.strokeWidth != strokeWidth;
   }
 }
+

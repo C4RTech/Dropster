@@ -62,23 +62,26 @@ class _MonitorScreenState extends State<MonitorScreen>
       // Forzar rebuild inmediato para valores eléctricos
       print('[MONITOR DEBUG] 🔄 Forzando actualización inmediata de UI...');
       setState(() {});
-      
+
       // Log de confirmación de actualización
-      print('[MONITOR DEBUG] ✅ UI actualizada - Valores eléctricos sincronizados');
+      print(
+          '[MONITOR DEBUG] ✅ UI actualizada - Valores eléctricos sincronizados');
     }
   }
 
   // Función helper para obtener valores seguros - SOLO DATOS REALES
   double _getValue(String key) {
     final data = globalNotifier.value;
-    
+
     // === PRIORIDAD PARA VALORES ELÉCTRICOS ===
     // Los valores eléctricos necesitan actualización inmediata
     final electricalKeys = ['voltaje', 'corriente', 'potencia', 'energia'];
     final isElectrical = electricalKeys.contains(key);
-    
+
     // Solo procesar si hay datos reales del MQTT
-    if (data.isNotEmpty && data.containsKey('source') && data['source'] == 'MQTT') {
+    if (data.isNotEmpty &&
+        data.containsKey('source') &&
+        data['source'] == 'MQTT') {
       if (data.containsKey(key) && data[key] != null) {
         final value = data[key];
         if (value is num) {
@@ -101,7 +104,7 @@ class _MonitorScreenState extends State<MonitorScreen>
         }
       }
     }
-    
+
     // Si no hay datos reales, mostrar 0.0 (no valores por defecto)
     if (isElectrical) {
       print(
@@ -113,17 +116,21 @@ class _MonitorScreenState extends State<MonitorScreen>
   // Función helper para formatear valores - SOLO DATOS EN TIEMPO REAL
   String _formatValue(double value, String unit, {int decimals = 2}) {
     final data = globalNotifier.value;
-    
+
     // Si no hay datos reales del MQTT, mostrar "--"
-    if (data.isEmpty || !data.containsKey('source') || data['source'] != 'MQTT') {
+    if (data.isEmpty ||
+        !data.containsKey('source') ||
+        data['source'] != 'MQTT') {
       return '--';
     }
 
     // Para energía, usar más decimales si el valor es muy pequeño
     int actualDecimals = decimals;
     if (unit == 'Wh' && value < 1.0 && value > 0) {
-      actualDecimals = 3; // Mostrar 3 decimales para valores pequeños de energía
-      print('[MONITOR ENERGIA] Valor pequeño detectado: ${value}Wh, usando ${actualDecimals} decimales');
+      actualDecimals =
+          3; // Mostrar 3 decimales para valores pequeños de energía
+      print(
+          '[MONITOR ENERGIA] Valor pequeño detectado: ${value}Wh, usando ${actualDecimals} decimales');
     }
 
     print('[MONITOR TIEMPO REAL] ${unit}: ${value}');
@@ -146,7 +153,6 @@ class _MonitorScreenState extends State<MonitorScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-
             Text('Ambiente',
                 style: TextStyle(
                     fontSize: 18,
@@ -198,20 +204,14 @@ class _MonitorScreenState extends State<MonitorScreen>
                 textColor: Colors.white),
             _bigCard(
                 icon: Icons.thermostat,
-                label: 'Temp. condensador',
-                value: _formatValue(_getValue('temperaturaCondensador'), '°C'),
+                label: 'Temp. Compresor',
+                value: _formatValue(_getValue('temperaturaCompresor'), '°C'),
                 color: colorAccent,
                 textColor: Colors.white),
             _bigCard(
                 icon: Icons.water,
                 label: 'Humedad relativa evaporador',
                 value: _formatValue(_getValue('humedadEvaporador'), '%'),
-                color: colorAccent,
-                textColor: Colors.white),
-            _bigCard(
-                icon: Icons.water,
-                label: 'Humedad relativa condensador',
-                value: _formatValue(_getValue('humedadCondensador'), '%'),
                 color: colorAccent,
                 textColor: Colors.white),
             _bigCard(
