@@ -1,0 +1,2 @@
+C:/Users/Usuario/Desktop/dropster/android/app/.cxx/RelWithDebInfo/6z3g585t/x86_64/CMakeFiles/edit_cache.dir
+C:/Users/Usuario/Desktop/dropster/android/app/.cxx/RelWithDebInfo/6z3g585t/x86_64/CMakeFiles/rebuild_cache.dir
