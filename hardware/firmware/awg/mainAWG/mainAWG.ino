@@ -1538,6 +1538,8 @@ public:
       if (alerts.containsKey("tf")) {  // Clave abreviada
         bool newEn = alerts["tf"];
         String tfvStr = alerts["tfv"];  // Clave abreviada
+        // Reemplazar coma por punto para compatibilidad con parsing decimal
+        tfvStr.replace(',', '.');
         float newThr = tfvStr.toFloat();
         awgLog(LOG_DEBUG, "🔍 ALERTA TANQUE - Actual: " + String(alertTankFull.enabled ? "ON" : "OFF") + " " + String(alertTankFull.threshold, 1) + "%, Nuevo: " + String(newEn ? "ON" : "OFF") + " " + String(newThr, 1) + "% (string: '" + tfvStr + "')");
         if (newThr >= 50.0 && newThr <= 100.0) {
@@ -1559,6 +1561,8 @@ public:
       if (alerts.containsKey("vl")) {  // Clave abreviada
         bool newEn = alerts["vl"];
         String vlvStr = alerts["vlv"];  // Clave abreviada
+        // Reemplazar coma por punto para compatibilidad con parsing decimal
+        vlvStr.replace(',', '.');
         float newThr = vlvStr.toFloat();
         awgLog(LOG_DEBUG, "🔍 ALERTA VOLTAJE - Actual: " + String(alertVoltageLow.enabled ? "ON" : "OFF") + " " + String(alertVoltageLow.threshold, 1) + "V, Nuevo: " + String(newEn ? "ON" : "OFF") + " " + String(newThr, 1) + "V (string: '" + vlvStr + "')");
         if (newThr >= 80.0 && newThr <= 130.0) {
@@ -1580,6 +1584,8 @@ public:
       if (alerts.containsKey("hl")) {  // Clave abreviada
         bool newEn = alerts["hl"];
         String hlvStr = alerts["hlv"];  // Clave abreviada
+        // Reemplazar coma por punto para compatibilidad con parsing decimal
+        hlvStr.replace(',', '.');
         float newThr = hlvStr.toFloat();
         awgLog(LOG_DEBUG, "🔍 ALERTA HUMEDAD - Actual: " + String(alertHumidityLow.enabled ? "ON" : "OFF") + " " + String(alertHumidityLow.threshold, 1) + "%, Nuevo: " + String(newEn ? "ON" : "OFF") + " " + String(newThr, 1) + "% (string: '" + hlvStr + "')");
         if (newThr >= 5.0 && newThr <= 50.0) {
@@ -1606,6 +1612,8 @@ public:
       // Banda muerta
       if (control.containsKey("db")) {  // Clave abreviada
         String dbStr = control["db"];
+        // Reemplazar coma por punto para compatibilidad con parsing decimal
+        dbStr.replace(',', '.');
         float newVal = dbStr.toFloat();
         awgLog(LOG_DEBUG, "🔍 CONTROL DEADBAND - Actual: " + String(control_deadband, 1) + "°C, Nuevo: " + String(newVal, 1) + "°C (string: '" + dbStr + "')");
         if (newVal >= 0.5 && newVal <= 10.0) {
@@ -1625,6 +1633,8 @@ public:
       // Temperatura máxima del compresor
       if (control.containsKey("mt")) {  // Clave abreviada
         String mtStr = control["mt"];
+        // Reemplazar coma por punto para compatibilidad con parsing decimal
+        mtStr.replace(',', '.');
         float newTemp = mtStr.toFloat();
         awgLog(LOG_DEBUG, "🔍 CONTROL MAX TEMP - Actual: " + String(maxCompressorTemp, 1) + "°C, Nuevo: " + String(newTemp, 1) + "°C (string: '" + mtStr + "')");
         if (newTemp >= 50.0 && newTemp <= 150.0) {
@@ -1699,6 +1709,8 @@ public:
       // Factor de suavizado
       if (control.containsKey("alp")) {  // Clave abreviada
         String alpStr = control["alp"];
+        // Reemplazar coma por punto para compatibilidad con parsing decimal
+        alpStr.replace(',', '.');
         float newVal = alpStr.toFloat();
         awgLog(LOG_DEBUG, "🔍 CONTROL ALPHA - Actual: " + String(control_alpha, 2) + ", Nuevo: " + String(newVal, 2) + " (string: '" + alpStr + "')");
         if (newVal >= 0.0 && newVal <= 1.0) {
@@ -1720,10 +1732,12 @@ public:
     if (doc.containsKey("tank")) {
       JsonObject tank = doc["tank"];
       awgLog(LOG_DEBUG, "🪣 Procesando configuración del tanque...");
-
+  
       // Capacidad del tanque
       if (tank.containsKey("cap")) {  // Clave abreviada
         String capStr = tank["cap"];
+        // Reemplazar coma por punto para compatibilidad con parsing decimal
+        capStr.replace(',', '.');
         float newCapacity = capStr.toFloat();
         awgLog(LOG_DEBUG, "🔍 TANQUE CAPACITY - Actual: " + String(tankCapacityLiters, 0) + "L, Nuevo: " + String(newCapacity, 0) + "L (string: '" + capStr + "')");
         if (newCapacity > 0 && newCapacity <= 10000) {
@@ -1731,7 +1745,7 @@ public:
             tankCapacityLiters = newCapacity;
             changeCount++;
             hasChanges = true;
-            awgLog(LOG_INFO, "✅ Capacidad del tanque actualizada: " + String(newCapacity, 0) + "L");
+            awgLog(LOG_INFO, "✅ Capacidad del tanque actualizada: " + String(newCapacity, 2) + "L");
           } else {
             awgLog(LOG_DEBUG, "🔍 Capacidad del tanque - Sin cambios");
           }
@@ -1793,6 +1807,8 @@ public:
       // Offset ultrasónico
       if (tank.containsKey("off")) {  // Clave abreviada
         String offStr = tank["off"];
+        // Reemplazar coma por punto para compatibilidad con parsing decimal
+        offStr.replace(',', '.');
         float newOffset = offStr.toFloat();
         awgLog(LOG_DEBUG, "🔍 TANQUE OFFSET - Actual: " + String(sensorOffset, 1) + "cm, Nuevo: " + String(newOffset, 1) + "cm (string: '" + offStr + "')");
         if (newOffset >= -50.0 && newOffset <= 50.0) {
@@ -1849,7 +1865,7 @@ public:
       Serial.println("🪣 CONFIGURACIÓN DEL TANQUE:");
       Serial.printf("  Calibrado: %s\n", isCalibrated ? "SI" : "NO");
       Serial.printf("  Offset ultrasónico: %.1f cm\n", sensorOffset);
-      Serial.printf("  Capacidad tanque: %.0f L\n", tankCapacityLiters);
+      Serial.printf("  Capacidad tanque: %.2f L\n", tankCapacityLiters);
       Serial.printf("  Puntos calibración: %d\n", numCalibrationPoints);
       if (isCalibrated && numCalibrationPoints >= 2) {
         Serial.printf("  Altura tanque: %.1f cm\n", tankHeight);
@@ -2123,9 +2139,13 @@ public:
     } else if (cmdToProcess == "oncf") {
       setCompressorFanState(true);
       sendStatesToDisplay();
+      // Publicar estado actualizado por MQTT para sincronización con la app
+      publishActuatorStatus();
     } else if (cmdToProcess == "offcf") {
       setCompressorFanState(false);
       sendStatesToDisplay();
+      // Publicar estado actualizado por MQTT para sincronización con la app
+      publishActuatorStatus();
     } else if (cmdToProcess == "onb") {
       operationMode = MODE_MANUAL;
       setPumpState(true);
@@ -2352,6 +2372,9 @@ public:
           String vStr = pair.substring(colon + 1);
           dStr.trim();
           vStr.trim();
+          // Reemplazar coma por punto para compatibilidad con parsing decimal
+          dStr.replace(',', '.');
+          vStr.replace(',', '.');
           float d = dStr.toFloat();
           float v = vStr.toFloat();
           if (d > 0 && v >= 0) {
@@ -2498,7 +2521,7 @@ public:
       Serial.printf("║   • Humedad: %.1f%%\n", this->getSensorData().bmeHum);
       Serial.printf("║   • Nivel agua: %.1f L\n", this->getSensorData().waterVolume);
       Serial.printf("║   • Offset sensor ultrasónico: %.1f cm\n", sensorOffset);
-      Serial.printf("║   • Capacidad del tanque: %.0f L\n", tankCapacityLiters);
+      Serial.printf("║   • Capacidad del tanque: %.2f L\n", tankCapacityLiters);
       Serial.println("║");
 
       // CONECTIVIDAD
@@ -2567,7 +2590,7 @@ public:
       Serial.println("║ 🪣 CONFIGURACIÓN DEL TANQUE:");
       Serial.printf("║   • Calibrado: %s\n", isCalibrated ? "SI" : "NO");
       Serial.printf("║   • Offset ultrasónico: %.1f cm\n", sensorOffset);
-      Serial.printf("║   • Capacidad tanque: %.0f L\n", tankCapacityLiters);
+      Serial.printf("║   • Capacidad tanque: %.2f L\n", tankCapacityLiters);
       Serial.printf("║   • Puntos calibración: %d\n", numCalibrationPoints);
       if (isCalibrated && numCalibrationPoints >= 2) {
         Serial.printf("║   • Altura tanque: %.1f cm\n", tankHeight);
@@ -3054,6 +3077,15 @@ void setVentiladorState(bool newState) {
   Serial1.println(String("VENT:") + (newState ? "ON" : "OFF"));
   if (mqttClient.connected()) {
     mqttClient.publish(MQTT_TOPIC_STATUS, ("VENT_" + String(newState ? "ON" : "OFF")).c_str());
+    // Enviar actualización inmediata a la app por MQTT topic DATA
+    StaticJsonDocument<20> updateDoc;
+    updateDoc["vs"] = newState ? 1 : 0;
+    char updateBuffer[20];
+    size_t updateLen = serializeJson(updateDoc, updateBuffer, sizeof(updateBuffer));
+    if (updateLen > 0 && updateLen < sizeof(updateBuffer)) {
+      mqttClient.publish(MQTT_TOPIC_DATA, updateBuffer, false);  // QoS 0 para actualización inmediata
+      awgLog(LOG_DEBUG, "📡 Actualización inmediata VS enviada: " + String(updateBuffer));
+    }
   }
 }
 
@@ -3064,6 +3096,15 @@ void setCompressorFanState(bool newState) {
   Serial1.println(String("CFAN:") + (newState ? "ON" : "OFF"));
   if (mqttClient.connected()) {
     mqttClient.publish(MQTT_TOPIC_STATUS, ("CFAN_" + String(newState ? "ON" : "OFF")).c_str());
+    // Enviar actualización inmediata a la app por MQTT topic DATA
+    StaticJsonDocument<20> updateDoc;
+    updateDoc["cfs"] = newState ? 1 : 0;
+    char updateBuffer[20];
+    size_t updateLen = serializeJson(updateDoc, updateBuffer, sizeof(updateBuffer));
+    if (updateLen > 0 && updateLen < sizeof(updateBuffer)) {
+      mqttClient.publish(MQTT_TOPIC_DATA, updateBuffer, false);  // QoS 0 para actualización inmediata
+      awgLog(LOG_DEBUG, "📡 Actualización inmediata CFS enviada: " + String(updateBuffer));
+    }
   }
 }
 
@@ -3126,6 +3167,15 @@ void setPumpState(bool newState) {
   Serial1.println(String("PUMP:") + (newState ? "ON" : "OFF"));
   if (mqttClient.connected()) {
     mqttClient.publish(MQTT_TOPIC_STATUS, ("PUMP_" + String(newState ? "ON" : "OFF")).c_str());
+    // Enviar actualización inmediata a la app por MQTT topic DATA
+    StaticJsonDocument<20> updateDoc;
+    updateDoc["ps"] = newState ? 1 : 0;
+    char updateBuffer[20];
+    size_t updateLen = serializeJson(updateDoc, updateBuffer, sizeof(updateBuffer));
+    if (updateLen > 0 && updateLen < sizeof(updateBuffer)) {
+      mqttClient.publish(MQTT_TOPIC_DATA, updateBuffer, false);  // QoS 0 para actualización inmediata
+      awgLog(LOG_DEBUG, "📡 Actualización inmediata PS enviada: " + String(updateBuffer));
+    }
   }
 }
 

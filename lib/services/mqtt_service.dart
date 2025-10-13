@@ -436,6 +436,7 @@ class MqttService {
                 print('[MQTT CONFIG] ⏱️  Timestamp: ${jsonData['timestamp']}');
                 print(
                     '[MQTT CONFIG] 🔋 Uptime ESP32: ${jsonData['uptime']} segundos');
+                // Siempre marcar como config_saved=true independientemente de si hay cambios o no
                 SingletonMqttService().notifier.value = {
                   ...SingletonMqttService().notifier.value,
                   'config_saved': true,
@@ -486,10 +487,10 @@ class MqttService {
                   'ps': json['pump'],
                 };
               }
-              if (json.containsKey('compressorFan')) {
+              if (json.containsKey('compressor_fan')) {
                 SingletonMqttService().notifier.value = {
                   ...SingletonMqttService().notifier.value,
-                  'cfs': json['compressorFan'],
+                  'cfs': json['compressor_fan'] ?? 0,
                 };
               }
             } catch (e) {
@@ -538,15 +539,25 @@ class MqttService {
                   ...SingletonMqttService().notifier.value,
                   'ps': 0,
                 };
-              } else if (payload.contains('COMP_FAN_ON')) {
+              } else if (payload.contains('CFAN_ON')) {
                 SingletonMqttService().notifier.value = {
                   ...SingletonMqttService().notifier.value,
                   'cfs': 1,
                 };
-              } else if (payload.contains('COMP_FAN_OFF')) {
+              } else if (payload.contains('CFAN_OFF')) {
                 SingletonMqttService().notifier.value = {
                   ...SingletonMqttService().notifier.value,
                   'cfs': 0,
+                };
+              } else if (payload.contains('AUTO_COMP_ON')) {
+                SingletonMqttService().notifier.value = {
+                  ...SingletonMqttService().notifier.value,
+                  'cs': 1,
+                };
+              } else if (payload.contains('AUTO_COMP_OFF')) {
+                SingletonMqttService().notifier.value = {
+                  ...SingletonMqttService().notifier.value,
+                  'cs': 0,
                 };
               }
             }
@@ -716,11 +727,11 @@ class MqttService {
           },
           'alerts': {
             'tf': tankFullEnabled, // tank full
-            'tfv': formatValue(tankFullThreshold),
+            'tfv': formatValue(tankFullThreshold.toInt()),
             'vl': voltageLowEnabled, // voltage low
-            'vlv': formatValue(voltageLowThreshold),
+            'vlv': formatValue(voltageLowThreshold.toInt()),
             'hl': humidityLowEnabled, // humidity low
-            'hlv': formatValue(humidityLowThreshold),
+            'hlv': formatValue(humidityLowThreshold.toInt()),
           },
           'control': {
             'db': formatValue(controlDeadband), // deadband
@@ -728,7 +739,7 @@ class MqttService {
             'mon': controlMaxOn, // max on
             'smp': controlSampling, // sampling
             'alp': formatValue(controlAlpha), // alpha
-            'mt': formatValue(maxCompressorTemp), // max temp
+            'mt': formatValue(maxCompressorTemp.toInt()), // max temp
           },
           'tank': {
             'cap': formatValue(tankCapacity), // capacity

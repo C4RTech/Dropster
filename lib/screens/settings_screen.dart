@@ -240,7 +240,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       // Configuración del tanque
       tankCapacity = settingsBox.get('tankCapacity', defaultValue: 1000.0);
-      tankCapacityController.text = tankCapacity.toStringAsFixed(0);
+      tankCapacityController.text =
+          tankCapacity.toStringAsFixed(tankCapacity < 1 ? 2 : 0);
 
       // Configuración de calibración
       isCalibrated = settingsBox.get('isCalibrated', defaultValue: false);
@@ -686,11 +687,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 return AlertDialog(
                   title: const Text('✅ Éxito'),
                   content: const Text(
-                      'Configuración cargada exitosamente en el ESP32'),
+                      'Configuración cargada exitosamente en el dispositivo Dropster AWG'),
                   actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(successContext).pop(),
-                      child: const Text('Aceptar'),
+                    Builder(
+                      builder: (dialogContext) {
+                        final colorPrimary =
+                            Theme.of(dialogContext).colorScheme.primary;
+                        return ElevatedButton(
+                          onPressed: () => Navigator.of(successContext).pop(),
+                          style: ElevatedButton.styleFrom(
+                              backgroundColor: colorPrimary),
+                          child: const Text('Aceptar',
+                              style: TextStyle(color: Colors.white)),
+                        );
+                      },
                     ),
                   ],
                 );
@@ -1074,7 +1084,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ListTile(
               leading: Icon(Icons.straighten, color: colorAccent),
               title: const Text('Capacidad del tanque'),
-              subtitle: Text('${tankCapacity.toStringAsFixed(0)} litros'),
+              subtitle: Text(
+                  '${tankCapacity.toStringAsFixed(tankCapacity < 1 ? 2 : 0)} litros'),
               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
               onTap: _showTankCapacityDialog,
             ),
@@ -1188,7 +1199,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SwitchListTile(
               title: const Text('Alerta de voltaje bajo'),
               subtitle: Text(
-                  'Notificar cuando el voltaje baje de ${voltageLowThreshold.toStringAsFixed(0)}V'),
+                  'Notificar cuando el voltaje baje de ${voltageLowThreshold.toInt()}V'),
               value: voltageLowEnabled,
               onChanged: (value) {
                 setState(() {
@@ -1220,7 +1231,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           value: voltageLowThreshold,
                           min: 90,
                           max: 125,
-                          label: '${voltageLowThreshold.toStringAsFixed(0)}V',
+                          divisions: 35,
+                          label: '${voltageLowThreshold.toInt()}V',
                           onChanged: (value) {
                             setState(() {
                               voltageLowThreshold = value;
@@ -1239,7 +1251,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SwitchListTile(
               title: const Text('Alerta de humedad baja'),
               subtitle: Text(
-                  'Notificar cuando la humedad baje de ${humidityLowThreshold.toStringAsFixed(1)}%'),
+                  'Notificar cuando la humedad baje de ${humidityLowThreshold.toStringAsFixed(0)}%'),
               value: humidityLowEnabled,
               onChanged: (value) {
                 setState(() {
@@ -1271,7 +1283,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           value: humidityLowThreshold,
                           min: 10,
                           max: 70,
-                          label: '${humidityLowThreshold.toStringAsFixed(1)}%',
+                          divisions: 60,
+                          label: '${humidityLowThreshold.toStringAsFixed(0)}%',
                           onChanged: (value) {
                             setState(() {
                               humidityLowThreshold = value;
@@ -1293,7 +1306,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: const TextStyle(color: Colors.white),
               ),
               subtitle: Text(
-                'Notificar cuando la temperatura supere los ${maxCompressorTemp.toStringAsFixed(1)}°C',
+                'Notificar cuando la temperatura supere los ${maxCompressorTemp.toStringAsFixed(0)}°C',
                 style: const TextStyle(color: Colors.white),
               ),
             ),
@@ -1321,7 +1334,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         min: 50.0,
                         max: 150.0,
                         divisions: 100,
-                        label: '${maxCompressorTemp.toStringAsFixed(1)}°C',
+                        label: '${maxCompressorTemp.toStringAsFixed(0)}°C',
                         onChanged: (value) {
                           setState(() {
                             maxCompressorTemp = value;
@@ -1652,11 +1665,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 labelText: 'Capacidad (litros)',
                 border: OutlineInputBorder(),
                 suffixText: 'L',
+                hintText: 'Ej: 0.5, 1.25, 1000',
               ),
             ),
             const SizedBox(height: 16),
             const Text(
-              'Ingresa la capacidad total del tanque en litros.',
+              'Ingresa la capacidad total del tanque en litros. Valores decimales permitidos (ej: 0.5 L para tanques pequeños).',
               style: TextStyle(fontSize: 12, color: Colors.white),
             ),
           ],
@@ -1676,7 +1690,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               return ElevatedButton(
                 onPressed: () {
                   final capacity = double.tryParse(tankCapacityController.text);
-                  if (capacity != null && capacity > 0) {
+                  if (capacity != null && capacity > 0 && capacity != 0) {
                     setState(() {
                       tankCapacity = capacity;
                     });
@@ -1692,7 +1706,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: const Text(
-                            'Por favor ingresa un valor válido mayor a 0',
+                            'Por favor ingresa un valor válido mayor a 0 (ej: 0.5, 1.25, 1000)',
                             style: TextStyle(color: Colors.white)),
                         backgroundColor: colorPrimary,
                       ),
