@@ -107,7 +107,12 @@ class EnhancedDailyReportService {
       debugPrint('📊 🚀 Iniciando generación de reporte diario profesional...');
 
       // Verificar si las notificaciones están habilitadas
-      final settingsBox = await Hive.openBox('settings');
+      Box settingsBox;
+      if (Hive.isBoxOpen('settings')) {
+        settingsBox = Hive.box('settings');
+      } else {
+        settingsBox = await Hive.openBox('settings');
+      }
       final showNotifications =
           settingsBox.get('showNotifications', defaultValue: true);
 
@@ -148,7 +153,12 @@ class EnhancedDailyReportService {
         '📊 Analizando datos del día: ${DateFormat('dd/MM/yyyy').format(date)}');
 
     // Obtener datos desde Hive
-    final dataBox = await Hive.openBox('energyData');
+    Box<Map> dataBox;
+    if (Hive.isBoxOpen('energyData')) {
+      dataBox = Hive.box<Map>('energyData');
+    } else {
+      dataBox = await Hive.openBox<Map>('energyData');
+    }
     final allData = dataBox.values.whereType<Map>().toList();
 
     // Filtrar datos del día
@@ -457,7 +467,12 @@ ${_getStatusEmoji(systemStatus)} ${_getStatusMessage(systemStatus)}''';
       DateTime date, Map<String, dynamic> report) async {
     try {
       debugPrint('📊 Guardando reporte en historial...');
-      final reportsBox = await Hive.openBox('enhanced_daily_reports');
+      Box reportsBox;
+      if (Hive.isBoxOpen('enhanced_daily_reports')) {
+        reportsBox = Hive.box('enhanced_daily_reports');
+      } else {
+        reportsBox = await Hive.openBox('enhanced_daily_reports');
+      }
 
       await reportsBox.add({
         'date': date.millisecondsSinceEpoch,
@@ -484,7 +499,12 @@ ${_getStatusEmoji(systemStatus)} ${_getStatusMessage(systemStatus)}''';
   /// Verificar reportes pendientes
   Future<void> _checkPendingReports() async {
     try {
-      final settingsBox = await Hive.openBox('settings');
+      Box settingsBox;
+      if (Hive.isBoxOpen('settings')) {
+        settingsBox = Hive.box('settings');
+      } else {
+        settingsBox = await Hive.openBox('settings');
+      }
       final enabled =
           settingsBox.get('dailyReportEnabled', defaultValue: false);
 
@@ -528,7 +548,12 @@ ${_getStatusEmoji(systemStatus)} ${_getStatusMessage(systemStatus)}''';
 
   /// Obtener historial de reportes
   Future<List<Map>> getReportHistory() async {
-    final reportsBox = await Hive.openBox('enhanced_daily_reports');
+    Box reportsBox;
+    if (Hive.isBoxOpen('enhanced_daily_reports')) {
+      reportsBox = Hive.box('enhanced_daily_reports');
+    } else {
+      reportsBox = await Hive.openBox('enhanced_daily_reports');
+    }
     final allReports = reportsBox.values.whereType<Map>().toList();
 
     // Ordenar por fecha (más reciente primero)
@@ -539,14 +564,24 @@ ${_getStatusEmoji(systemStatus)} ${_getStatusMessage(systemStatus)}''';
 
   /// Limpiar historial de reportes
   Future<void> clearReportHistory() async {
-    final reportsBox = await Hive.openBox('enhanced_daily_reports');
+    Box reportsBox;
+    if (Hive.isBoxOpen('enhanced_daily_reports')) {
+      reportsBox = Hive.box('enhanced_daily_reports');
+    } else {
+      reportsBox = await Hive.openBox('enhanced_daily_reports');
+    }
     await reportsBox.clear();
   }
 
   /// Obtener estado del servicio
   Future<Map<String, dynamic>> getServiceStatus() async {
     final now = DateTime.now();
-    final settingsBox = await Hive.openBox('settings');
+    Box settingsBox;
+    if (Hive.isBoxOpen('settings')) {
+      settingsBox = Hive.box('settings');
+    } else {
+      settingsBox = await Hive.openBox('settings');
+    }
     final enabled = settingsBox.get('dailyReportEnabled', defaultValue: false);
 
     if (!enabled) {
@@ -642,7 +677,12 @@ Future<void> _enhancedDailyReportCallback() async {
     await service.generateDailyReport();
 
     // Programar siguiente reporte
-    final settingsBox = await Hive.openBox('settings');
+    Box settingsBox;
+    if (Hive.isBoxOpen('settings')) {
+      settingsBox = Hive.box('settings');
+    } else {
+      settingsBox = await Hive.openBox('settings');
+    }
     final enabled = settingsBox.get('dailyReportEnabled', defaultValue: false);
     final hour = settingsBox.get('dailyReportHour', defaultValue: 20);
     final minute = settingsBox.get('dailyReportMinute', defaultValue: 0);
@@ -665,7 +705,12 @@ Future<void> _backupReportCallback() async {
 
   try {
     // Verificar si ya se ejecutó el reporte principal
-    final reportsBox = await Hive.openBox('enhanced_daily_reports');
+    Box reportsBox;
+    if (Hive.isBoxOpen('enhanced_daily_reports')) {
+      reportsBox = Hive.box('enhanced_daily_reports');
+    } else {
+      reportsBox = await Hive.openBox('enhanced_daily_reports');
+    }
     final today = DateTime.now().subtract(const Duration(days: 1));
 
     final todayReports = reportsBox.values.where((report) {

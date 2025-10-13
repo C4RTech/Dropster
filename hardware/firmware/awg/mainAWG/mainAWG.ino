@@ -67,6 +67,11 @@ bool isProcessingCommand = false;   // Flag de procesamiento de comando activo
 unsigned long lastCommandTime = 0;  // Timestamp del último comando
 String lastProcessedCommand = "";   // Último comando procesado (evita duplicados)
 
+// Sistema de ensamblaje de configuración fragmentada
+String configFragments[4];          // Almacena las 4 partes del JSON fragmentado
+bool fragmentsReceived[4] = {false, false, false, false}; // Flags para saber qué partes llegaron
+unsigned long configAssembleTimeout = 0; // Timeout para el ensamblaje
+
 // Estadísticas del sistema (métricas de funcionamiento)
 unsigned long systemStartTime = 0;    // Timestamp de inicio del sistema
 unsigned int rebootCount = 0;         // Número de reinicios
@@ -148,13 +153,6 @@ unsigned long mqttReconnectBackoff = MQTT_RECONNECT_DELAY;  // Backoff para reco
 
 // Variables para monitoreo automático de sensores
 unsigned long lastSensorStatusCheck = 0;  // Última verificación de estado de sensores
-bool prevBmeOnline = false;
-bool prevSht1Online = false;
-bool prevPzemOnline = false;
-bool prevRtcAvailable = false;
-bool prevUltrasonicOk = false;
-bool prevTermistorOk = false;
-bool prevDisplayOk = false;
 
 // ========================================================================================
 // 4. DECLARACIONES ANTICIPADAS DE FUNCIONES
@@ -179,7 +177,7 @@ String getSystemStateJSON();                                          // Estado 
 void setVentiladorState(bool newState);     // Control del ventilador
 void setCompressorFanState(bool newState);  // Control del ventilador del compresor
 void setPumpState(bool newState);           // Control de la bomba con validaciones
-void publishCurrentStates();                // Publica estados actuales por MQTT
+void publishActuatorStatus();               // Publica estados actuadores + modo por MQTT
 
 // Sistema de alertas
 void sendAlert(String type, String message, float value);  // Envía alerta por MQTT
@@ -192,8 +190,8 @@ void sendStatesToDisplay();  // Envía estados al display LCD
 // 11. FUNCIONES DE COMUNICACIÓN Y UTILIDADES
 // ========================================================================================
 
-//Publica todos los estados actuales del sistema por MQTT para sincronización inmediata. (Útil cuando la app se conecta o necesita actualizar su estado)
-void publishCurrentStates() {
+// Publica el estado de actuadores y modo de operación al topic status (JSON, QoS 1, retained)
+void publishActuatorStatus() {
   if (!mqttClient.connected()) return;
 
   // Leer estados actuales de los relés
@@ -202,14 +200,28 @@ void publishCurrentStates() {
   bool compFanOn = (digitalRead(COMPRESSOR_FAN_RELAY_PIN) == LOW);
   bool pumpOn = (digitalRead(PUMP_RELAY_PIN) == LOW);
 
-  // Publicar estados individuales
-  mqttClient.publish(MQTT_TOPIC_STATUS, compOn ? "COMP_ON" : "COMP_OFF");
-  mqttClient.publish(MQTT_TOPIC_STATUS, ventOn ? "VENT_ON" : "VENT_OFF");
-  mqttClient.publish(MQTT_TOPIC_STATUS, compFanOn ? "CFAN_ON" : "CFAN_OFF");
-  mqttClient.publish(MQTT_TOPIC_STATUS, pumpOn ? "PUMP_ON" : "PUMP_OFF");
+  // Crear JSON con estados de actuadores y modo
+  StaticJsonDocument<200> statusDoc;
+  statusDoc["compressor"] = compOn ? 1 : 0;
+  statusDoc["ventilador"] = ventOn ? 1 : 0;
+  statusDoc["compressor_fan"] = compFanOn ? 1 : 0;
+  statusDoc["pump"] = pumpOn ? 1 : 0;
+  statusDoc["mode"] = operationMode == MODE_AUTO ? "AUTO" : "MANUAL";
 
-  // Publicar modo de operación actual
-  mqttClient.publish(MQTT_TOPIC_STATUS, operationMode == MODE_AUTO ? "MODE_AUTO" : "MODE_MANUAL");
+  // Timestamp para sincronización
+  if (rtcAvailable) {
+    DateTime now = rtc.now();
+    statusDoc["timestamp"] = now.unixtime();
+  } else {
+    statusDoc["timestamp"] = millis() / 1000;
+  }
+
+  char statusBuffer[200];
+  size_t statusLen = serializeJson(statusDoc, statusBuffer, sizeof(statusBuffer));
+  if (statusLen > 0 && statusLen < sizeof(statusBuffer)) {
+    mqttClient.publish(MQTT_TOPIC_STATUS, statusBuffer, true);  // QoS 1, retained
+    awgLog(LOG_DEBUG, "📊 Estado actuadores publicado: " + String(statusBuffer));
+  }
 }
 
 /* Envía una alerta del sistema por MQTT hacia la aplicación móvil. Incluye información detallada del evento para notificaciones push
@@ -221,16 +233,18 @@ void sendAlert(String type, String message, float value) {
   }
   awgLog(LOG_DEBUG, "📤 Preparando envío de alerta: " + type + " - Valor: " + String(value, 2));
 
-  // Función para redondear floats a 2 decimales
-  auto roundTo2Decimals = [](float val) -> float {
-    return round(val * 100.0) / 100.0;
+  // Función para convertir floats a strings con exactamente 2 decimales
+  auto floatToString2Decimals = [](float value) -> String {
+    char buffer[20];
+    dtostrf(value, 1, 2, buffer);
+    return String(buffer);
   };
 
   // Crear documento JSON con información de la alerta
   StaticJsonDocument<200> doc;
   doc["type"] = type;
   doc["message"] = message;
-  doc["value"] = roundTo2Decimals(value);
+  doc["value"] = floatToString2Decimals(value);
 
   // Timestamp usando RTC si está disponible
   if (rtcAvailable) {
@@ -564,7 +578,7 @@ public:
     return data;
   }
 
-  // Función de monitoreo automático de estado de sensores
+  // Función de monitoreo automático de estado de sensores (simplificada)
   void monitorSensorStatus() {
     // Verificar estado actual de cada sensor
     bool currentBmeOnline = bmeOnline;
@@ -579,209 +593,108 @@ public:
     bool currentTermistorOk = (!isnan(temp) && temp > -50 && temp < 200);
 
     // Verificar HC-SR04
-    float distance = getAverageDistance(1);  // Verificación rápida
+    float distance = getAverageDistance(1);
     bool currentUltrasonicOk = (distance >= 0 && distance <= 400);
 
-    // Verificar pantalla (ping rápido)
-    Serial1.println("P");  // Ping corto
+    // Verificar pantalla
+    Serial1.println("P");
     delay(50);
     bool currentDisplayOk = Serial1.available();
 
+    // Estado anterior (variables locales para simplificar)
+    static bool prevBmeOnline = false;
+    static bool prevSht1Online = false;
+    static bool prevPzemOnline = false;
+    static bool prevRtcAvailable = false;
+    static bool prevUltrasonicOk = false;
+    static bool prevTermistorOk = false;
+    static bool prevDisplayOk = false;
+
     // Comparar con estado anterior y mostrar alertas
     if (currentBmeOnline != prevBmeOnline) {
-      if (!currentBmeOnline) {
-        awgLog(LOG_ERROR, "🚨 FALLO DETECTADO: BME280 (Sensor ambiental) - DESCONECTADO");
-      } else {
-        awgLog(LOG_INFO, "✅ RECUPERADO: BME280 (Sensor ambiental) - FUNCIONANDO");
-      }
+      awgLog(currentBmeOnline ? LOG_INFO : LOG_ERROR,
+             currentBmeOnline ? "✅ BME280 RECUPERADO" : "🚨 BME280 DESCONECTADO");
       prevBmeOnline = currentBmeOnline;
     }
 
     if (currentSht1Online != prevSht1Online) {
-      if (!currentSht1Online) {
-        awgLog(LOG_ERROR, "🚨 FALLO DETECTADO: SHT31 (Sensor evaporador) - DESCONECTADO");
-      } else {
-        awgLog(LOG_INFO, "✅ RECUPERADO: SHT31 (Sensor evaporador) - FUNCIONANDO");
-      }
+      awgLog(currentSht1Online ? LOG_INFO : LOG_ERROR,
+             currentSht1Online ? "✅ SHT31 RECUPERADO" : "🚨 SHT31 DESCONECTADO");
       prevSht1Online = currentSht1Online;
     }
 
     if (currentPzemOnline != prevPzemOnline) {
-      if (!currentPzemOnline) {
-        awgLog(LOG_ERROR, "🚨 FALLO DETECTADO: PZEM-004T (Medidor energía) - DESCONECTADO");
-      } else {
-        awgLog(LOG_INFO, "✅ RECUPERADO: PZEM-004T (Medidor energía) - FUNCIONANDO");
-      }
+      awgLog(currentPzemOnline ? LOG_INFO : LOG_ERROR,
+             currentPzemOnline ? "✅ PZEM RECUPERADO" : "🚨 PZEM DESCONECTADO");
       prevPzemOnline = currentPzemOnline;
     }
 
     if (currentRtcAvailable != prevRtcAvailable) {
-      if (!currentRtcAvailable) {
-        awgLog(LOG_ERROR, "🚨 FALLO DETECTADO: DS3231 (RTC) - DESCONECTADO");
-      } else {
-        awgLog(LOG_INFO, "✅ RECUPERADO: DS3231 (RTC) - FUNCIONANDO");
-      }
+      awgLog(currentRtcAvailable ? LOG_INFO : LOG_ERROR,
+             currentRtcAvailable ? "✅ RTC RECUPERADO" : "🚨 RTC DESCONECTADO");
       prevRtcAvailable = currentRtcAvailable;
     }
 
     if (currentTermistorOk != prevTermistorOk) {
-      if (!currentTermistorOk) {
-        awgLog(LOG_ERROR, "🚨 FALLO DETECTADO: Termistor (Temp. compresor) - ERROR DE LECTURA");
-      } else {
-        awgLog(LOG_INFO, "✅ RECUPERADO: Termistor (Temp. compresor) - FUNCIONANDO");
-      }
+      awgLog(currentTermistorOk ? LOG_INFO : LOG_ERROR,
+             currentTermistorOk ? "✅ TERMISTOR RECUPERADO" : "🚨 TERMISTOR ERROR");
       prevTermistorOk = currentTermistorOk;
     }
 
     if (currentUltrasonicOk != prevUltrasonicOk) {
-      if (!currentUltrasonicOk) {
-        awgLog(LOG_ERROR, "🚨 FALLO DETECTADO: HC-SR04 (Sensor nivel) - ERROR DE LECTURA");
-      } else {
-        awgLog(LOG_INFO, "✅ RECUPERADO: HC-SR04 (Sensor nivel) - FUNCIONANDO");
-      }
+      awgLog(currentUltrasonicOk ? LOG_INFO : LOG_ERROR,
+             currentUltrasonicOk ? "✅ ULTRASONICO RECUPERADO" : "🚨 ULTRASONICO ERROR");
       prevUltrasonicOk = currentUltrasonicOk;
     }
 
     if (currentDisplayOk != prevDisplayOk) {
-      if (!currentDisplayOk) {
-        awgLog(LOG_ERROR, "🚨 FALLO DETECTADO: Pantalla LCD - DESCONECTADA");
-      } else {
-        awgLog(LOG_INFO, "✅ RECUPERADO: Pantalla LCD - FUNCIONANDO");
-      }
+      awgLog(currentDisplayOk ? LOG_INFO : LOG_ERROR,
+             currentDisplayOk ? "✅ DISPLAY RECUPERADO" : "🚨 DISPLAY DESCONECTADO");
       prevDisplayOk = currentDisplayOk;
     }
   }
 
   void performSensorDiagnostics() {
-    awgLog(LOG_INFO, "🔍 DIAGNÓSTICO COMPLETO DE SENSORES - SISTEMA DROPSTER AWG");
-    awgLog(LOG_INFO, "═══════════════════════════════════════════════════════════════");
-
-    String failedSensors = "";
-    String workingSensors = "";
+    awgLog(LOG_INFO, "🔍 DIAGNÓSTICO DE SENSORES");
+    String failed = "", working = "";
     bool allOk = true;
 
-    // 1. Verificar BME280 (Temperatura, Humedad, Presión)
-    awgLog(LOG_INFO, "🔧 Verificando BME280 (Sensor ambiental)...");
+    // Verificar sensores
     if (bmeOnline) {
-      float temp = bme.readTemperature();
-      float hum = bme.readHumidity();
-      float pres = bme.readPressure() / 100.0;
-      if (!isnan(temp) && !isnan(hum) && !isnan(pres)) {
-        awgLog(LOG_INFO, "  ✅ BME280: OK - " + String(temp, 1) + "°C, " + String(hum, 1) + "%, " + String(pres, 1) + "hPa");
-        workingSensors += "BME280, ";
-      } else {
-        awgLog(LOG_ERROR, "  ❌ BME280: ERROR - Lectura inválida");
-        failedSensors += "BME280, ";
-        allOk = false;
-      }
-    } else {
-      awgLog(LOG_ERROR, "  ❌ BME280: DESCONECTADO - No responde en bus I2C");
-      failedSensors += "BME280, ";
-      allOk = false;
-    }
+      float t = bme.readTemperature(), h = bme.readHumidity(), p = bme.readPressure() / 100.0;
+      if (!isnan(t) && !isnan(h) && !isnan(p)) working += "BME280, ";
+      else { failed += "BME280, "; allOk = false; }
+    } else { failed += "BME280, "; allOk = false; }
 
-    // 2. Verificar SHT31 (Temperatura y Humedad de alta precisión)
-    awgLog(LOG_INFO, "🔧 Verificando SHT31 (Sensor evaporador)...");
     if (sht1Online) {
-      float temp = sht31_1.readTemperature();
-      float hum = sht31_1.readHumidity();
-      if (!isnan(temp) && !isnan(hum)) {
-        awgLog(LOG_INFO, "  ✅ SHT31: OK - " + String(temp, 1) + "°C, " + String(hum, 1) + "%");
-        workingSensors += "SHT31, ";
-      } else {
-        awgLog(LOG_ERROR, "  ❌ SHT31: ERROR - Lectura inválida");
-        failedSensors += "SHT31, ";
-        allOk = false;
-      }
-    } else {
-      awgLog(LOG_ERROR, "  ❌ SHT31: DESCONECTADO - No responde en bus I2C");
-      failedSensors += "SHT31, ";
-      allOk = false;
-    }
+      float t = sht31_1.readTemperature(), h = sht31_1.readHumidity();
+      if (!isnan(t) && !isnan(h)) working += "SHT31, ";
+      else { failed += "SHT31, "; allOk = false; }
+    } else { failed += "SHT31, "; allOk = false; }
 
-    // 3. Verificar PZEM-004T (Medidor de energía)
-    awgLog(LOG_INFO, "🔧 Verificando PZEM-004T (Medidor energía)...");
     if (pzemOnline) {
-      float voltage = pzem.voltage();
-      float current = pzem.current();
-      if (!isnan(voltage) && voltage > 0.1) {
-        awgLog(LOG_INFO, "  ✅ PZEM-004T: OK - " + String(voltage, 1) + "V, " + String(current, 2) + "A");
-        workingSensors += "PZEM-004T, ";
-      } else {
-        awgLog(LOG_ERROR, "  ❌ PZEM-004T: ERROR - No detecta voltaje válido");
-        failedSensors += "PZEM-004T, ";
-        allOk = false;
-      }
-    } else {
-      awgLog(LOG_ERROR, "  ❌ PZEM-004T: DESCONECTADO - No responde en puerto serial");
-      failedSensors += "PZEM-004T, ";
-      allOk = false;
-    }
+      float v = pzem.voltage();
+      if (!isnan(v) && v > 0.1) working += "PZEM, ";
+      else { failed += "PZEM, "; allOk = false; }
+    } else { failed += "PZEM, "; allOk = false; }
 
-    // 4. Verificar DS3231 (Reloj de tiempo real)
-    awgLog(LOG_INFO, "🔧 Verificando DS3231 (RTC)...");
-    if (rtcAvailable && rtcOnline) {
-      DateTime now = rtc.now();
-      awgLog(LOG_INFO, "  ✅ DS3231: OK - " + String(now.year()) + "-" + String(now.month()) + "-" + String(now.day()) + " " + String(now.hour()) + ":" + String(now.minute()));
-      workingSensors += "DS3231, ";
-    } else {
-      awgLog(LOG_ERROR, "  ❌ DS3231: DESCONECTADO - No responde en bus I2C");
-      failedSensors += "DS3231, ";
-      allOk = false;
-    }
+    if (rtcAvailable && rtcOnline) working += "RTC, ";
+    else { failed += "RTC, "; allOk = false; }
 
-    // 5. Verificar Termistor (Temperatura del compresor)
-    awgLog(LOG_INFO, "🔧 Verificando Termistor (Temp. compresor)...");
-    int adcValue = analogRead(TERMISTOR_PIN);
-    if (adcValue > 0) {
-      float resistance = (adcValue * VREF) / ADC_RESOLUTION / CURRENT;
-      float temp = calculateTemperature(resistance);
-      if (!isnan(temp) && temp > -50 && temp < 200) {
-        awgLog(LOG_INFO, "  ✅ Termistor: OK - " + String(temp, 1) + "°C");
-        workingSensors += "Termistor, ";
-      } else {
-        awgLog(LOG_ERROR, "  ❌ Termistor: ERROR - Temperatura fuera de rango");
-        failedSensors += "Termistor, ";
-        allOk = false;
-      }
-    } else {
-      awgLog(LOG_ERROR, "  ❌ Termistor: ERROR - No se puede leer ADC");
-      failedSensors += "Termistor, ";
-      allOk = false;
-    }
+    int adc = analogRead(TERMISTOR_PIN);
+    if (adc > 0) {
+      float r = (adc * VREF) / ADC_RESOLUTION / CURRENT;
+      float temp = calculateTemperature(r);
+      if (!isnan(temp) && temp > -50 && temp < 200) working += "Termistor, ";
+      else { failed += "Termistor, "; allOk = false; }
+    } else { failed += "Termistor, "; allOk = false; }
 
-    // 6. Verificar HC-SR04 (Sensor ultrasónico)
-    awgLog(LOG_INFO, "🔧 Verificando HC-SR04 (Sensor nivel)...");
-    float distance = getAverageDistance(3);
-    if (distance >= 0 && distance <= 400) {
-      awgLog(LOG_INFO, "  ✅ HC-SR04: OK - " + String(distance, 1) + " cm");
-      workingSensors += "HC-SR04, ";
-    } else {
-      awgLog(LOG_ERROR, "  ❌ HC-SR04: ERROR - No detecta distancia válida");
-      failedSensors += "HC-SR04, ";
-      allOk = false;
-    }
+    float dist = getAverageDistance(3);
+    if (dist >= 0 && dist <= 400) working += "HC-SR04, ";
+    else { failed += "HC-SR04, "; allOk = false; }
 
-    // Resultado final
-    awgLog(LOG_INFO, "═══════════════════════════════════════════════════════════════");
-    if (allOk) {
-      awgLog(LOG_INFO, "🎉 TODOS LOS SENSORES FUNCIONANDO CORRECTAMENTE");
-    } else {
-      // Quitar coma final
-      if (failedSensors.length() > 0) {
-        failedSensors = failedSensors.substring(0, failedSensors.length() - 2);
-      }
-      if (workingSensors.length() > 0) {
-        workingSensors = workingSensors.substring(0, workingSensors.length() - 2);
-      }
-
-      awgLog(LOG_ERROR, "⚠️ SENSORES CON PROBLEMAS: " + failedSensors);
-      if (workingSensors.length() > 0) {
-        awgLog(LOG_INFO, "✅ Sensores OK: " + workingSensors);
-      }
-      awgLog(LOG_WARNING, "🔧 Recomendación: Verificar conexiones físicas y alimentación de los sensores fallidos");
-    }
-    awgLog(LOG_INFO, "═══════════════════════════════════════════════════════════════");
+    awgLog(allOk ? LOG_INFO : LOG_ERROR,
+           allOk ? "🎉 TODOS LOS SENSORES OK" : "⚠️ SENSORES CON PROBLEMAS: " + failed);
   }
 
   AWGSensorManager()
@@ -847,25 +760,7 @@ public:
       awgLog(LOG_WARNING, "Sensor ultrasónico presenta problemas");
     }
 
-    // Inicializar estado anterior de sensores para monitoreo automático
-    prevBmeOnline = bmeOnline;
-    prevSht1Online = sht1Online;
-    prevPzemOnline = pzemOnline;
-    prevRtcAvailable = rtcAvailable && rtcOnline;
-
-    // Verificar estado inicial de termistor
-    int adcValue = analogRead(TERMISTOR_PIN);
-    float resistance = (adcValue * VREF) / ADC_RESOLUTION / CURRENT;
-    float temp = calculateTemperature(resistance);
-    prevTermistorOk = (!isnan(temp) && temp > -50 && temp < 200);
-
-    // Verificar estado inicial de HC-SR04
-    prevUltrasonicOk = (testDistance >= 0 && testDistance <= 400);
-
-    // Verificar estado inicial de pantalla
-    Serial1.println("P");
-    delay(50);
-    prevDisplayOk = Serial1.available();
+    // Estado inicial de sensores para monitoreo (se inicializa en monitorSensorStatus)
 
     awgLog(LOG_INFO, "Inicialización de sensores completada");
     return bmeOnline || sht1Online || pzemOnline;
@@ -1130,34 +1025,36 @@ public:
     float safeEnergy = max(0.0f, data.energy);            // Energía nunca negativa
     StaticJsonDocument<300> doc;
 
-    // Función para redondear floats a exactamente 2 decimales
-    auto roundTo2Decimals = [](float value) -> float {
-      return round(value * 100.0) / 100.0;
+    // Función para convertir floats a strings con exactamente 2 decimales
+    auto floatToString2Decimals = [](float value) -> String {
+      char buffer[20];
+      dtostrf(value, 1, 2, buffer);
+      return String(buffer);
     };
 
     if (bmeOnline) {
-      doc["t"] = roundTo2Decimals(data.bmeTemp);  // Temperatura ambiente
-      doc["h"] = roundTo2Decimals(data.bmeHum);   // Humedad relativa ambiente
-      doc["p"] = roundTo2Decimals(data.bmePres);  // presion atmosferica ambiente
+      doc["t"] = floatToString2Decimals(data.bmeTemp);  // Temperatura ambiente
+      doc["h"] = floatToString2Decimals(data.bmeHum);   // Humedad relativa ambiente
+      doc["p"] = floatToString2Decimals(data.bmePres);  // presion atmosferica ambiente
     }
 
-    doc["w"] = roundTo2Decimals(safeWaterVolume);  // Agua almacenada
+    doc["w"] = floatToString2Decimals(safeWaterVolume);  // Agua almacenada
 
     if (sht1Online) {
-      doc["te"] = roundTo2Decimals(data.sht1Temp);  // Temperatura del evaporador
-      doc["he"] = roundTo2Decimals(data.sht1Hum);   // Humedad relativa del evaporador
+      doc["te"] = floatToString2Decimals(data.sht1Temp);  // Temperatura del evaporador
+      doc["he"] = floatToString2Decimals(data.sht1Hum);   // Humedad relativa del evaporador
     }
 
-    doc["tc"] = roundTo2Decimals(data.compressorTemp);  // Temperatura del compresor
-    doc["dp"] = roundTo2Decimals(data.dewPoint);        // Temperatura punto de rocio
-    doc["ha"] = roundTo2Decimals(data.absHumidity);     // Humedad Absoluta
+    doc["tc"] = floatToString2Decimals(data.compressorTemp);  // Temperatura del compresor
+    doc["dp"] = floatToString2Decimals(data.dewPoint);        // Temperatura punto de rocio
+    doc["ha"] = floatToString2Decimals(data.absHumidity);     // Humedad Absoluta
 
     if (pzemOnline) {
-      if (data.voltage > 0) doc["v"] = roundTo2Decimals(data.voltage);   // voltaje
-      if (data.current >= 0) doc["c"] = roundTo2Decimals(data.current);  // corriente
-      if (data.power >= 0) doc["po"] = roundTo2Decimals(data.power);     // potencia
+      if (data.voltage > 0) doc["v"] = floatToString2Decimals(data.voltage);   // voltaje
+      if (data.current >= 0) doc["c"] = floatToString2Decimals(data.current);  // corriente
+      if (data.power >= 0) doc["po"] = floatToString2Decimals(data.power);     // potencia
     }
-    if (safeEnergy >= 0) doc["e"] = roundTo2Decimals(safeEnergy);  // Energía (acumulativa)
+    if (safeEnergy >= 0) doc["e"] = floatToString2Decimals(safeEnergy);  // Energía (acumulativa)
 
     doc["cs"] = data.compressorState;
     doc["vs"] = data.ventiladorState;
@@ -1173,19 +1070,19 @@ public:
 
     // Calcular porcentaje de agua
     float waterPercentMQTT = calculateWaterPercent(data.distance, safeWaterVolume);
-    doc["water_height"] = roundTo2Decimals(waterPercentMQTT);
-    doc["tank_capacity"] = roundTo2Decimals(tankCapacityLiters);
+    doc["water_height"] = floatToString2Decimals(waterPercentMQTT);
+    doc["tank_capacity"] = floatToString2Decimals(tankCapacityLiters);
 
     if (rtcOnline) {
       DateTime now = rtc.now();
       doc["ts"] = now.unixtime();
     } else {
-      doc["ts"] = roundTo2Decimals(millis() / 1000.0);
+      doc["ts"] = floatToString2Decimals(millis() / 1000.0);
     }
     size_t jsonSize = serializeJson(doc, mqttBuffer, sizeof(mqttBuffer));
 
     if (jsonSize > 0 && jsonSize < sizeof(mqttBuffer)) {
-      mqttClient.publish(MQTT_TOPIC_DATA, mqttBuffer, false);
+      mqttClient.publish(MQTT_TOPIC_DATA, mqttBuffer, true);  // QoS 1 para asegurar entrega
     }
   }
 
@@ -1324,8 +1221,8 @@ public:
   }
 
   void handleCommands() {
-    // Buffer fijo para comandos provenientes del UART1 (pantalla)
-    static char cmdBuf1[128];
+    // Buffer ampliado para comandos provenientes del UART1 (pantalla) - ahora 1024 bytes para JSON completo
+    static char cmdBuf1[1024];
     static size_t cmdIdx1 = 0;
     while (Serial1.available()) {
       char c = (char)Serial1.read();
@@ -1341,6 +1238,7 @@ public:
         if (cmdIdx1 < sizeof(cmdBuf1) - 1) {
           cmdBuf1[cmdIdx1++] = c;
         } else {
+          awgLog(LOG_WARNING, "Buffer UART1 lleno - comando muy largo, descartando");
           cmdIdx1 = 0;  // overflow: resetear
         }
       }
@@ -1348,8 +1246,8 @@ public:
   }
 
   void handleSerialCommands() {
-    // Buffer para comandos desde el puerto USB Serial
-    static char cmdBuf0[128];
+    // Buffer ampliado para comandos desde el puerto USB Serial - ahora 1024 bytes para JSON completo
+    static char cmdBuf0[1024];
     static size_t cmdIdx0 = 0;
     while (Serial.available()) {
       char c = (char)Serial.read();
@@ -1362,8 +1260,10 @@ public:
         cmdIdx0 = 0;
       } else if (c != '\r') {
         if (cmdIdx0 < sizeof(cmdBuf0) - 1) {
-          cmdBuf0[cmdIdx0++] = c;
+          cmdBuf0[cmdIdx0] = c;
+          cmdIdx0++;
         } else {
+          awgLog(LOG_WARNING, "Buffer Serial lleno - comando muy largo, descartando");
           cmdIdx0 = 0;
         }
       }
@@ -1442,134 +1342,106 @@ public:
     }
   }
 
+  // Funciones de validación y cálculo
+  float validateTemp(float temp) {
+    return (temp > -50.0 && temp < 100.0) ? temp : 0.0;
+  }
+
+  float validateHumidity(float hum) {
+    return (hum >= 0.0 && hum <= 100.0) ? hum : 0.0;
+  }
+
+  float calculateDewPoint(float temp, float hum) {
+    const float a = 17.62, b = 243.12;
+    float factor = log(hum / 100.0) + (a * temp) / (b + temp);
+    return (b * factor) / (a - factor);
+  }
+
+  float calculateAbsoluteHumidity(float temp, float hum, float pres) {
+    float presPa = pres * 100.0;
+    float Pws = A_MAGNUS * exp((L / Rv) * (1.0 / ZERO_CELSIUS - 1.0 / (temp + ZERO_CELSIUS)));
+    float Pw = (hum / 100.0) * Pws;
+    float mixRatio = 0.622 * (Pw / (presPa - Pw));
+    return (mixRatio * presPa * 1000.0) / (Rv * (temp + ZERO_CELSIUS));
+  }
+
   void performSensorRecoveryInternal() {
-    awgLog(LOG_DEBUG, "🔄 Iniciando verificación de recuperación de sensores...");
+    awgLog(LOG_DEBUG, "🔄 Verificando recuperación de sensores...");
     bool recoveryAttempted = false;
 
-    // 1. Recuperación de sensores I2C (BME280, SHT31, RTC)
+    // Recuperación de sensores I2C
     if (!bmeOnline || !sht1Online || !rtcAvailable) {
-      awgLog(LOG_DEBUG, "🔧 Verificando sensores I2C...");
-
-      // Reset del bus I2C
       Wire.end();
       delay(100);
       Wire.begin(SDA_PIN, SCL_PIN);
       delay(100);
 
-      // Intentar recuperar BME280
-      if (!bmeOnline) {
-        Adafruit_BME280 tempBME;
-        if (tempBME.begin(BME280_ADDR)) {
-          bmeOnline = true;
-          awgLog(LOG_INFO, "✅ BME280 recuperado exitosamente");
-          recoveryAttempted = true;
-        } else {
-          awgLog(LOG_DEBUG, "❌ BME280 no recuperado");
-        }
+      if (!bmeOnline && Adafruit_BME280().begin(BME280_ADDR)) {
+        bmeOnline = true;
+        awgLog(LOG_INFO, "✅ BME280 recuperado");
+        recoveryAttempted = true;
       }
 
-      // Intentar recuperar SHT31
       if (!sht1Online) {
         Adafruit_SHT31 tempSHT;
         tempSHT.begin(SHT31_ADDR_1);
-        // Intentar una lectura de prueba
-        float temp = tempSHT.readTemperature();
-        if (!isnan(temp)) {
+        if (!isnan(tempSHT.readTemperature())) {
           sht1Online = true;
-          awgLog(LOG_INFO, "✅ SHT31 recuperado exitosamente");
+          awgLog(LOG_INFO, "✅ SHT31 recuperado");
           recoveryAttempted = true;
-        } else {
-          awgLog(LOG_DEBUG, "❌ SHT31 no recuperado");
         }
       }
 
-      // Intentar recuperar RTC
-      if (!rtcAvailable) {
-        RTC_DS3231 tempRTC;
-        if (tempRTC.begin()) {
-          rtcAvailable = true;
-          rtcOnline = true;
-          awgLog(LOG_INFO, "✅ RTC recuperado exitosamente");
-          recoveryAttempted = true;
-        } else {
-          awgLog(LOG_DEBUG, "❌ RTC no recuperado");
-        }
-      }
-    }
-
-    // 2. Recuperación de PZEM-004T (Serial)
-    if (!pzemOnline) {
-      awgLog(LOG_DEBUG, "🔧 Verificando PZEM-004T...");
-
-      // Intentar múltiples lecturas consecutivas para verificar recuperación estable
-      bool pzemRecovered = false;
-      int consecutiveSuccess = 0;
-      const int requiredConsecutive = 3;  // Requiere 3 lecturas consecutivas exitosas
-
-      for (int i = 0; i < 5 && consecutiveSuccess < requiredConsecutive; i++) {
-        float voltage = pzem.voltage();
-        if (!isnan(voltage) && voltage > 0.1) {  // Voltaje válido (>0.1V para evitar ruido)
-          consecutiveSuccess++;
-          awgLog(LOG_DEBUG, "📊 Lectura PZEM exitosa " + String(consecutiveSuccess) + "/" + String(requiredConsecutive) + ": " + String(voltage, 1) + "V");
-        } else {
-          consecutiveSuccess = 0;  // Reset contador si falla
-          awgLog(LOG_DEBUG, "📊 Lectura PZEM fallida o voltaje cero");
-        }
-        delay(300);  // Mayor delay entre lecturas
-      }
-
-      if (consecutiveSuccess >= requiredConsecutive) {
-        pzemOnline = true;
-        pzemRecovered = true;
-        awgLog(LOG_INFO, "✅ PZEM-004T recuperado exitosamente después de " + String(requiredConsecutive) + " lecturas consecutivas válidas");
+      if (!rtcAvailable && RTC_DS3231().begin()) {
+        rtcAvailable = rtcOnline = true;
+        awgLog(LOG_INFO, "✅ RTC recuperado");
         recoveryAttempted = true;
-      } else {
-        awgLog(LOG_DEBUG, "❌ PZEM-004T no recuperado - no se obtuvieron " + String(requiredConsecutive) + " lecturas consecutivas válidas");
       }
     }
-    if (recoveryAttempted) {
-      awgLog(LOG_INFO, "🔄 Recuperación de sensores completada");
-    } else {
-      awgLog(LOG_DEBUG, "🔄 Todos los sensores operativos - no se requirió recuperación");
+
+    // Recuperación de PZEM
+    if (!pzemOnline) {
+      int consecutiveSuccess = 0;
+      for (int i = 0; i < 5 && consecutiveSuccess < 3; i++) {
+        float voltage = pzem.voltage();
+        if (!isnan(voltage) && voltage > 0.1) consecutiveSuccess++;
+        else consecutiveSuccess = 0;
+        delay(300);
+      }
+      if (consecutiveSuccess >= 3) {
+        pzemOnline = true;
+        awgLog(LOG_INFO, "✅ PZEM recuperado");
+        recoveryAttempted = true;
+      }
     }
+
+    if (recoveryAttempted) awgLog(LOG_INFO, "🔄 Recuperación completada");
   }
 
-  // Función para enviar confirmación de configuración a la app
   void sendConfigAckToApp(int changeCount) {
-    // Validar conexión MQTT
     if (!mqttClient.connected()) {
       awgLog(LOG_WARNING, "⚠️ MQTT no conectado, no se puede enviar confirmación de configuración");
       return;
     }
 
-    // Validar parámetros
-    if (changeCount < 0) {
-      awgLog(LOG_ERROR, "❌ Número de cambios inválido: " + String(changeCount));
-      return;
-    }
+    // Mensaje de confirmación simplificado (sin timestamp ni uptime innecesarios)
+    StaticJsonDocument<100> doc;
+    doc["type"] = "config_ack";
+    doc["status"] = (changeCount > 0) ? "success" : "no_changes";
+    doc["changes"] = changeCount;
 
-    // Crear documento JSON con validación
-    StaticJsonDocument<150> ackDoc;
-    ackDoc["type"] = "config_ack";
-    ackDoc["status"] = (changeCount > 0) ? "success" : "no_changes";
-    ackDoc["changes"] = changeCount;
-    ackDoc["timestamp"] = rtcAvailable ? rtc.now().unixtime() : (millis() / 1000);
-    ackDoc["uptime"] = millis() / 1000;  // Añadir uptime para debugging
-
-    // Serializar con validación de tamaño
-    char ackBuffer[150];
-    size_t ackLen = serializeJson(ackDoc, ackBuffer, sizeof(ackBuffer));
-
-    if (ackLen > 0 && ackLen < sizeof(ackBuffer) - 1) {
-      // Enviar con QoS 1 para asegurar entrega y reintento automático
-      bool sent = mqttClient.publish(MQTT_TOPIC_STATUS, ackBuffer, true);  // QoS 1
+    char buffer[100];
+    size_t len = serializeJson(doc, buffer, sizeof(buffer));
+    if (len > 0 && len < sizeof(buffer)) {
+      // Enviar al topic STATUS en lugar de CONTROL para evitar loop
+      bool sent = mqttClient.publish(MQTT_TOPIC_STATUS, buffer, true);
       if (sent) {
         awgLog(LOG_INFO, "📤 Confirmación de configuración enviada exitosamente: " + String(changeCount) + " cambios aplicados");
-        awgLog(LOG_DEBUG, "📄 JSON enviado: " + String(ackBuffer));
+        awgLog(LOG_DEBUG, "📄 JSON enviado: " + String(buffer));
       } else {
         awgLog(LOG_ERROR, "❌ Error al publicar confirmación MQTT (QoS 1)");
         // Intentar con QoS 0 como fallback
-        sent = mqttClient.publish(MQTT_TOPIC_STATUS, ackBuffer, false);
+        sent = mqttClient.publish(MQTT_TOPIC_STATUS, buffer, false);
         if (sent) {
           awgLog(LOG_WARNING, "⚠️ Confirmación enviada con QoS 0 (fallback)");
         } else {
@@ -1578,8 +1450,510 @@ public:
       }
       mqttClient.loop();  // Procesar MQTT para asegurar envío inmediato
     } else {
-      awgLog(LOG_ERROR, "❌ Error al serializar confirmación JSON - buffer insuficiente o error de serialización");
-      awgLog(LOG_DEBUG, "📏 Longitud requerida: " + String(ackLen) + ", buffer disponible: " + String(sizeof(ackBuffer)));
+      awgLog(LOG_ERROR, "❌ Error al serializar confirmación JSON - buffer insuficiente");
+    }
+  }
+
+  // Nueva función para procesar configuración unificada
+  void processUnifiedConfig(String jsonPayload) {
+    // Verificar que el JSON esté completo (debe terminar con '}')
+    if (!jsonPayload.endsWith("}")) {
+      awgLog(LOG_ERROR, "❌ JSON incompleto - no termina con '}' - Longitud: " + String(jsonPayload.length()));
+      Serial1.println("UPDATE_CONFIG: ERR");
+      return;
+    }
+
+    // Verificar caracteres de escape
+    if (jsonPayload.indexOf('\\') != -1) {
+      awgLog(LOG_WARNING, "⚠️ JSON contiene caracteres de escape - removiendo...");
+      jsonPayload.replace("\\", "");
+    }
+
+    // Verificar si el JSON comienza correctamente
+    if (!jsonPayload.startsWith("{")) {
+      awgLog(LOG_ERROR, "❌ JSON malformado - no comienza con '{'");
+      awgLog(LOG_DEBUG, "📄 JSON recibido: '" + jsonPayload + "'");
+      Serial1.println("UPDATE_CONFIG: ERR");
+      return;
+    }
+
+    // Parsear JSON con documento grande para configuración completa
+    DynamicJsonDocument doc(2048);
+    DeserializationError error = deserializeJson(doc, jsonPayload);
+
+    if (error) {
+      awgLog(LOG_ERROR, "❌ Error parseando JSON unificado: " + String(error.c_str()));
+      awgLog(LOG_DEBUG, "📄 JSON que causó error: '" + jsonPayload + "'");
+      Serial1.println("UPDATE_CONFIG: ERR");
+      return;
+    }
+
+    awgLog(LOG_INFO, "✅ JSON unificado parseado correctamente");
+    int changeCount = 0;
+    bool hasChanges = false;
+    bool mqttChanged = false;
+    String changesSummary = "";
+
+    // Procesar configuración MQTT
+    if (doc.containsKey("mqtt")) {
+      JsonObject mqtt = doc["mqtt"];
+      awgLog(LOG_DEBUG, "📡 Procesando configuración MQTT...");
+
+      String newBroker = mqtt["b"] | MQTT_BROKER;  // Usar clave abreviada 'b'
+      int newPort = mqtt["p"] | MQTT_PORT;          // Usar clave abreviada 'p'
+
+      awgLog(LOG_DEBUG, "🔍 MQTT - Broker actual: '" + mqttBroker + "', Nuevo: '" + newBroker + "'");
+      awgLog(LOG_DEBUG, "🔍 MQTT - Puerto actual: " + String(mqttPort) + ", Nuevo: " + String(newPort));
+
+      if (newBroker != mqttBroker || newPort != mqttPort) {
+        awgLog(LOG_INFO, "🔄 CAMBIO DE CONFIGURACIÓN MQTT DETECTADO:");
+        awgLog(LOG_INFO, "  📡 BROKER ANTERIOR: " + mqttBroker + ":" + String(mqttPort));
+        awgLog(LOG_INFO, "  🎯 BROKER NUEVO: " + newBroker + ":" + String(newPort));
+
+        // Guardar nueva configuración en Preferences
+        preferences.begin("awg-mqtt", false);
+        preferences.putString("broker", newBroker);
+        preferences.putInt("port", newPort);
+        preferences.end();
+
+        // Actualizar variables globales
+        mqttBroker = newBroker;
+        mqttPort = newPort;
+        mqttChanged = true;
+        changesSummary += "MQTT: " + newBroker + ":" + String(newPort) + " | ";
+        changeCount++;
+        hasChanges = true;
+        awgLog(LOG_INFO, "✅ Configuración MQTT actualizada exitosamente");
+      } else {
+        awgLog(LOG_DEBUG, "🔍 MQTT - Sin cambios en configuración");
+      }
+    }
+
+    // Procesar alertas
+    if (doc.containsKey("alerts")) {
+      JsonObject alerts = doc["alerts"];
+      awgLog(LOG_DEBUG, "📊 Procesando configuración de alertas...");
+
+      // Tanque lleno
+      if (alerts.containsKey("tf")) {  // Clave abreviada
+        bool newEn = alerts["tf"];
+        String tfvStr = alerts["tfv"];  // Clave abreviada
+        float newThr = tfvStr.toFloat();
+        awgLog(LOG_DEBUG, "🔍 ALERTA TANQUE - Actual: " + String(alertTankFull.enabled ? "ON" : "OFF") + " " + String(alertTankFull.threshold, 1) + "%, Nuevo: " + String(newEn ? "ON" : "OFF") + " " + String(newThr, 1) + "% (string: '" + tfvStr + "')");
+        if (newThr >= 50.0 && newThr <= 100.0) {
+          if (newEn != alertTankFull.enabled || fabs(newThr - alertTankFull.threshold) > 0.01) {
+            alertTankFull.enabled = newEn;
+            alertTankFull.threshold = newThr;
+            changeCount++;
+            hasChanges = true;
+            awgLog(LOG_INFO, "✅ Alerta tanque lleno actualizada: " + String(newEn ? "ON" : "OFF") + " " + String(newThr, 1) + "%");
+          } else {
+            awgLog(LOG_DEBUG, "🔍 Alerta tanque lleno - Sin cambios");
+          }
+        } else {
+          awgLog(LOG_WARNING, "⚠️ Umbral de tanque lleno inválido: " + String(newThr, 1) + "% (debe estar entre 50-100%)");
+        }
+      }
+
+      // Voltaje bajo
+      if (alerts.containsKey("vl")) {  // Clave abreviada
+        bool newEn = alerts["vl"];
+        String vlvStr = alerts["vlv"];  // Clave abreviada
+        float newThr = vlvStr.toFloat();
+        awgLog(LOG_DEBUG, "🔍 ALERTA VOLTAJE - Actual: " + String(alertVoltageLow.enabled ? "ON" : "OFF") + " " + String(alertVoltageLow.threshold, 1) + "V, Nuevo: " + String(newEn ? "ON" : "OFF") + " " + String(newThr, 1) + "V (string: '" + vlvStr + "')");
+        if (newThr >= 80.0 && newThr <= 130.0) {
+          if (newEn != alertVoltageLow.enabled || fabs(newThr - alertVoltageLow.threshold) > 0.01) {
+            alertVoltageLow.enabled = newEn;
+            alertVoltageLow.threshold = newThr;
+            changeCount++;
+            hasChanges = true;
+            awgLog(LOG_INFO, "✅ Alerta voltaje bajo actualizada: " + String(newEn ? "ON" : "OFF") + " " + String(newThr, 1) + "V");
+          } else {
+            awgLog(LOG_DEBUG, "🔍 Alerta voltaje bajo - Sin cambios");
+          }
+        } else {
+          awgLog(LOG_WARNING, "⚠️ Umbral de voltaje bajo inválido: " + String(newThr, 1) + "V (debe estar entre 80-130V)");
+        }
+      }
+
+      // Humedad baja
+      if (alerts.containsKey("hl")) {  // Clave abreviada
+        bool newEn = alerts["hl"];
+        String hlvStr = alerts["hlv"];  // Clave abreviada
+        float newThr = hlvStr.toFloat();
+        awgLog(LOG_DEBUG, "🔍 ALERTA HUMEDAD - Actual: " + String(alertHumidityLow.enabled ? "ON" : "OFF") + " " + String(alertHumidityLow.threshold, 1) + "%, Nuevo: " + String(newEn ? "ON" : "OFF") + " " + String(newThr, 1) + "% (string: '" + hlvStr + "')");
+        if (newThr >= 5.0 && newThr <= 50.0) {
+          if (newEn != alertHumidityLow.enabled || fabs(newThr - alertHumidityLow.threshold) > 0.01) {
+            alertHumidityLow.enabled = newEn;
+            alertHumidityLow.threshold = newThr;
+            changeCount++;
+            hasChanges = true;
+            awgLog(LOG_INFO, "✅ Alerta humedad baja actualizada: " + String(newEn ? "ON" : "OFF") + " " + String(newThr, 1) + "%");
+          } else {
+            awgLog(LOG_DEBUG, "🔍 Alerta humedad baja - Sin cambios");
+          }
+        } else {
+          awgLog(LOG_WARNING, "⚠️ Umbral de humedad baja inválido: " + String(newThr, 1) + "% (debe estar entre 5-50%)");
+        }
+      }
+    }
+
+    // Procesar parámetros de control
+    if (doc.containsKey("control")) {
+      JsonObject control = doc["control"];
+      awgLog(LOG_DEBUG, "🎛️ Procesando parámetros de control...");
+
+      // Banda muerta
+      if (control.containsKey("db")) {  // Clave abreviada
+        String dbStr = control["db"];
+        float newVal = dbStr.toFloat();
+        awgLog(LOG_DEBUG, "🔍 CONTROL DEADBAND - Actual: " + String(control_deadband, 1) + "°C, Nuevo: " + String(newVal, 1) + "°C (string: '" + dbStr + "')");
+        if (newVal >= 0.5 && newVal <= 10.0) {
+          if (fabs(newVal - control_deadband) > 0.01) {
+            control_deadband = newVal;
+            changeCount++;
+            hasChanges = true;
+            awgLog(LOG_INFO, "✅ Banda muerta actualizada: " + String(newVal, 1) + "°C");
+          } else {
+            awgLog(LOG_DEBUG, "🔍 Banda muerta - Sin cambios");
+          }
+        } else {
+          awgLog(LOG_WARNING, "⚠️ Banda muerta inválida: " + String(newVal, 1) + "°C (debe estar entre 0.5-10.0°C)");
+        }
+      }
+
+      // Temperatura máxima del compresor
+      if (control.containsKey("mt")) {  // Clave abreviada
+        String mtStr = control["mt"];
+        float newTemp = mtStr.toFloat();
+        awgLog(LOG_DEBUG, "🔍 CONTROL MAX TEMP - Actual: " + String(maxCompressorTemp, 1) + "°C, Nuevo: " + String(newTemp, 1) + "°C (string: '" + mtStr + "')");
+        if (newTemp >= 50.0 && newTemp <= 150.0) {
+          if (fabs(newTemp - maxCompressorTemp) > 0.01) {
+            maxCompressorTemp = newTemp;
+            alertCompressorTemp.threshold = newTemp;
+            changeCount++;
+            hasChanges = true;
+            awgLog(LOG_INFO, "✅ Temperatura máxima del compresor actualizada: " + String(newTemp, 1) + "°C");
+          } else {
+            awgLog(LOG_DEBUG, "🔍 Temperatura máxima compresor - Sin cambios");
+          }
+        } else {
+          awgLog(LOG_WARNING, "⚠️ Temperatura máxima del compresor inválida: " + String(newTemp, 1) + "°C (debe estar entre 50.0-150.0°C)");
+        }
+      }
+
+      // Tiempo mínimo apagado
+      if (control.containsKey("mof")) {  // Clave abreviada
+        int newVal = control["mof"] | control_min_off;
+        awgLog(LOG_DEBUG, "🔍 CONTROL MIN OFF - Actual: " + String(control_min_off) + "s, Nuevo: " + String(newVal) + "s");
+        if (newVal >= 10 && newVal <= 300) {
+          if (newVal != control_min_off) {
+            control_min_off = newVal;
+            changeCount++;
+            hasChanges = true;
+            awgLog(LOG_INFO, "✅ Tiempo min apagado actualizado: " + String(newVal) + "s");
+          } else {
+            awgLog(LOG_DEBUG, "🔍 Tiempo min apagado - Sin cambios");
+          }
+        } else {
+          awgLog(LOG_WARNING, "⚠️ Tiempo min apagado inválido: " + String(newVal) + "s (debe estar entre 10-300s)");
+        }
+      }
+
+      // Tiempo máximo encendido
+      if (control.containsKey("mon")) {  // Clave abreviada
+        int newVal = control["mon"] | control_max_on;
+        awgLog(LOG_DEBUG, "🔍 CONTROL MAX ON - Actual: " + String(control_max_on) + "s, Nuevo: " + String(newVal) + "s");
+        if (newVal >= 300 && newVal <= 7200) {
+          if (newVal != control_max_on) {
+            control_max_on = newVal;
+            changeCount++;
+            hasChanges = true;
+            awgLog(LOG_INFO, "✅ Tiempo max encendido actualizado: " + String(newVal) + "s");
+          } else {
+            awgLog(LOG_DEBUG, "🔍 Tiempo max encendido - Sin cambios");
+          }
+        } else {
+          awgLog(LOG_WARNING, "⚠️ Tiempo max encendido inválido: " + String(newVal) + "s (debe estar entre 300-7200s)");
+        }
+      }
+
+      // Intervalo de muestreo
+      if (control.containsKey("smp")) {  // Clave abreviada
+        int newVal = control["smp"] | control_sampling;
+        awgLog(LOG_DEBUG, "🔍 CONTROL SAMPLING - Actual: " + String(control_sampling) + "s, Nuevo: " + String(newVal) + "s");
+        if (newVal >= 2 && newVal <= 60) {
+          if (newVal != control_sampling) {
+            control_sampling = newVal;
+            changeCount++;
+            hasChanges = true;
+            awgLog(LOG_INFO, "✅ Intervalo de muestreo actualizado: " + String(newVal) + "s");
+          } else {
+            awgLog(LOG_DEBUG, "🔍 Intervalo de muestreo - Sin cambios");
+          }
+        } else {
+          awgLog(LOG_WARNING, "⚠️ Intervalo de muestreo inválido: " + String(newVal) + "s (debe estar entre 2-60s)");
+        }
+      }
+
+      // Factor de suavizado
+      if (control.containsKey("alp")) {  // Clave abreviada
+        String alpStr = control["alp"];
+        float newVal = alpStr.toFloat();
+        awgLog(LOG_DEBUG, "🔍 CONTROL ALPHA - Actual: " + String(control_alpha, 2) + ", Nuevo: " + String(newVal, 2) + " (string: '" + alpStr + "')");
+        if (newVal >= 0.0 && newVal <= 1.0) {
+          if (fabs(newVal - control_alpha) > 0.01) {
+            control_alpha = newVal;
+            changeCount++;
+            hasChanges = true;
+            awgLog(LOG_INFO, "✅ Factor de suavizado actualizado: " + String(newVal, 2));
+          } else {
+            awgLog(LOG_DEBUG, "🔍 Factor de suavizado - Sin cambios");
+          }
+        } else {
+          awgLog(LOG_WARNING, "⚠️ Factor de suavizado inválido: " + String(newVal, 2) + " (debe estar entre 0.0-1.0)");
+        }
+      }
+    }
+
+    // Procesar configuración del tanque
+    if (doc.containsKey("tank")) {
+      JsonObject tank = doc["tank"];
+      awgLog(LOG_DEBUG, "🪣 Procesando configuración del tanque...");
+
+      // Capacidad del tanque
+      if (tank.containsKey("cap")) {  // Clave abreviada
+        String capStr = tank["cap"];
+        float newCapacity = capStr.toFloat();
+        awgLog(LOG_DEBUG, "🔍 TANQUE CAPACITY - Actual: " + String(tankCapacityLiters, 0) + "L, Nuevo: " + String(newCapacity, 0) + "L (string: '" + capStr + "')");
+        if (newCapacity > 0 && newCapacity <= 10000) {
+          if (fabs(newCapacity - tankCapacityLiters) > 0.01) {
+            tankCapacityLiters = newCapacity;
+            changeCount++;
+            hasChanges = true;
+            awgLog(LOG_INFO, "✅ Capacidad del tanque actualizada: " + String(newCapacity, 0) + "L");
+          } else {
+            awgLog(LOG_DEBUG, "🔍 Capacidad del tanque - Sin cambios");
+          }
+        } else {
+          awgLog(LOG_WARNING, "⚠️ Capacidad del tanque inválida: " + String(newCapacity, 0) + "L (ignorando)");
+        }
+      }
+
+      // Estado de calibración
+      if (tank.containsKey("cal")) {  // Clave abreviada
+        bool newCalibrated = tank["cal"] | isCalibrated;
+        awgLog(LOG_DEBUG, "🔍 TANQUE CALIBRATED - Actual: " + String(isCalibrated ? "SI" : "NO") + ", Nuevo: " + String(newCalibrated ? "SI" : "NO"));
+        if (newCalibrated != isCalibrated) {
+          isCalibrated = newCalibrated;
+          changeCount++;
+          hasChanges = true;
+          awgLog(LOG_INFO, "✅ Estado de calibración actualizado: " + String(newCalibrated ? "SI" : "NO"));
+        } else {
+          awgLog(LOG_DEBUG, "🔍 Estado de calibración - Sin cambios");
+        }
+      }
+
+      // Puntos de calibración
+      if (tank.containsKey("pts")) {  // Clave abreviada
+        JsonArray points = tank["pts"];
+        awgLog(LOG_DEBUG, "🔍 TANQUE CALIBRATION POINTS - Actual: " + String(numCalibrationPoints) + " puntos");
+        int validPoints = 0;
+        if (points.size() > 0 && points.size() <= MAX_CALIBRATION_POINTS) {
+          // Validar y cargar puntos
+          for (int i = 0; i < points.size() && validPoints < MAX_CALIBRATION_POINTS; i++) {
+            float dist = points[i]["d"] | -1.0f;  // Clave abreviada
+            float vol = points[i]["l"] | -1.0f;   // Clave abreviada
+
+            // Validar valores
+            if (dist >= 0 && dist <= 400 && vol >= 0 && vol <= 10000) {
+              calibrationPoints[validPoints].distance = dist;
+              calibrationPoints[validPoints].volume = vol;
+              validPoints++;
+            } else {
+              awgLog(LOG_WARNING, "⚠️ Punto de calibración inválido ignorado: dist=" + String(dist, 1) + ", vol=" + String(vol, 1));
+            }
+          }
+          if (validPoints > 0) {
+            numCalibrationPoints = validPoints;
+            sortCalibrationPoints();
+            calculateTankHeight();
+            saveCalibration();
+            changeCount++;
+            hasChanges = true;
+            awgLog(LOG_INFO, "✅ Puntos de calibración actualizados: " + String(validPoints) + " puntos válidos");
+          } else {
+            awgLog(LOG_WARNING, "⚠️ No se encontraron puntos de calibración válidos");
+          }
+        } else {
+          awgLog(LOG_WARNING, "⚠️ Número de puntos de calibración inválido: " + String(points.size()));
+        }
+      }
+
+      // Offset ultrasónico
+      if (tank.containsKey("off")) {  // Clave abreviada
+        String offStr = tank["off"];
+        float newOffset = offStr.toFloat();
+        awgLog(LOG_DEBUG, "🔍 TANQUE OFFSET - Actual: " + String(sensorOffset, 1) + "cm, Nuevo: " + String(newOffset, 1) + "cm (string: '" + offStr + "')");
+        if (newOffset >= -50.0 && newOffset <= 50.0) {
+          if (fabs(newOffset - sensorOffset) > 0.01) {
+            sensorOffset = newOffset;
+            changeCount++;
+            hasChanges = true;
+            awgLog(LOG_INFO, "✅ Offset del sensor actualizado: " + String(newOffset, 1) + "cm");
+          } else {
+            awgLog(LOG_DEBUG, "🔍 Offset del sensor - Sin cambios");
+          }
+        } else {
+          awgLog(LOG_WARNING, "⚠️ Offset del sensor fuera de rango: " + String(newOffset, 1) + "cm (ignorando)");
+        }
+      }
+    }
+
+    // Reconectar MQTT si cambió la configuración
+    if (mqttChanged) {
+      awgLog(LOG_INFO, "🔌 Reconectando MQTT con nueva configuración...");
+      mqttClient.disconnect();
+      delay(1000);
+      connectMQTT();
+
+      // Publicar estado de conexión actualizado
+      if (mqttClient.connected()) {
+        awgLog(LOG_INFO, "✅ Reconexión MQTT exitosa - Broker actual: " + mqttBroker + ":" + String(mqttPort));
+        mqttClient.publish(MQTT_TOPIC_SYSTEM, "ESP32_AWG_ONLINE", true);
+        // Re-suscribirse a los topics después de reconectar
+        mqttClient.subscribe(MQTT_TOPIC_CONTROL);
+      } else {
+        awgLog(LOG_ERROR, "❌ Reconexión MQTT fallida - Broker configurado: " + mqttBroker + ":" + String(mqttPort));
+      }
+    }
+
+    // Mostrar resumen de cambios
+    if (hasChanges) {
+      awgLog(LOG_INFO, "✅ Configuración unificada actualizada exitosamente (" + String(changeCount) + " cambios)");
+      // Mostrar configuración actual completa en Serial para debugging
+      Serial.println("\n=== CONFIGURACIÓN ACTUALIZADA ===");
+      Serial.println("📡 MQTT:");
+      Serial.printf("  Broker: %s:%d\n", mqttBroker.c_str(), mqttPort);
+      Serial.println("🎛️ PARÁMETROS DE CONTROL:");
+      Serial.printf("  Banda muerta: %.1f°C\n", control_deadband);
+      Serial.printf("  Tiempo min apagado: %d segundos\n", control_min_off);
+      Serial.printf("  Tiempo max encendido: %d segundos\n", control_max_on);
+      Serial.printf("  Intervalo muestreo: %d segundos\n", control_sampling);
+      Serial.printf("  Factor suavizado: %.2f\n", control_alpha);
+      Serial.println("🚨 CONFIGURACIÓN DE ALERTAS:");
+      Serial.printf("  Tanque lleno: %s (%.1f%%)\n", alertTankFull.enabled ? "ON" : "OFF", alertTankFull.threshold);
+      Serial.printf("  Voltaje bajo: %s (%.1fV)\n", alertVoltageLow.enabled ? "ON" : "OFF", alertVoltageLow.threshold);
+      Serial.printf("  Humedad baja: %s (%.1f%%)\n", alertHumidityLow.enabled ? "ON" : "OFF", alertHumidityLow.threshold);
+      Serial.printf("  Temp alta compresor: (%.1f°C)\n", maxCompressorTemp);
+      Serial.println("🪣 CONFIGURACIÓN DEL TANQUE:");
+      Serial.printf("  Calibrado: %s\n", isCalibrated ? "SI" : "NO");
+      Serial.printf("  Offset ultrasónico: %.1f cm\n", sensorOffset);
+      Serial.printf("  Capacidad tanque: %.0f L\n", tankCapacityLiters);
+      Serial.printf("  Puntos calibración: %d\n", numCalibrationPoints);
+      if (isCalibrated && numCalibrationPoints >= 2) {
+        Serial.printf("  Altura tanque: %.1f cm\n", tankHeight);
+      }
+      Serial.println("================================\n");
+
+      // Guardar configuración en memoria no volátil
+      awgLog(LOG_DEBUG, "💾 Guardando configuración...");
+      saveAlertConfig();
+      preferences.begin("awg-config", false);
+      preferences.putFloat("ctrl_deadband", control_deadband);
+      preferences.putInt("ctrl_min_off", control_min_off);
+      preferences.putInt("ctrl_max_on", control_max_on);
+      preferences.putInt("ctrl_sampling", control_sampling);
+      preferences.putFloat("ctrl_alpha", control_alpha);
+      preferences.end();
+      awgLog(LOG_INFO, "💾 Configuración guardada en memoria");
+
+      // Enviar confirmación inmediata a la app vía MQTT
+      awgLog(LOG_INFO, "📤 Enviando confirmación de configuración a la app...");
+      sendConfigAckToApp(changeCount);
+      Serial1.println("UPDATE_CONFIG: OK");
+      awgLog(LOG_INFO, "🎉 Actualización de configuración completada exitosamente");
+    } else {
+      awgLog(LOG_INFO, "ℹ️ Configuración unificada recibida sin cambios");
+      awgLog(LOG_INFO, "📤 Enviando confirmación de 'sin cambios' a la app...");
+      sendConfigAckToApp(0);
+      Serial1.println("UPDATE_CONFIG: OK");
+    }
+  }
+
+  // Función para enviar backup completo de configuración a la app
+  void sendConfigBackupToApp() {
+    // Validar conexión MQTT
+    if (!mqttClient.connected()) {
+      awgLog(LOG_WARNING, "⚠️ MQTT no conectado, no se puede enviar backup de configuración");
+      return;
+    }
+
+    awgLog(LOG_INFO, "💾 Generando backup completo de configuración para sincronización con app...");
+
+    // Crear documento JSON con toda la configuración del sistema
+    StaticJsonDocument<1024> backup;
+    backup["type"] = "config_backup";
+    backup["timestamp"] = rtcAvailable ? rtc.now().unixtime() : (millis() / 1000);
+    backup["firmware_version"] = "AWG v1.0";
+
+    // Configuración MQTT
+    JsonObject mqtt = backup.createNestedObject("mqtt");
+    mqtt["broker"] = mqttBroker;
+    mqtt["port"] = mqttPort;
+
+    // Parámetros de control automático
+    JsonObject control = backup.createNestedObject("control");
+    control["deadband"] = control_deadband;
+    control["minOff"] = control_min_off;
+    control["maxOn"] = control_max_on;
+    control["sampling"] = control_sampling;
+    control["alpha"] = control_alpha;
+
+    // Configuración de alertas
+    JsonObject alerts = backup.createNestedObject("alerts");
+    alerts["tankFullEnabled"] = alertTankFull.enabled;
+    alerts["tankFullThreshold"] = alertTankFull.threshold;
+    alerts["voltageLowEnabled"] = alertVoltageLow.enabled;
+    alerts["voltageLowThreshold"] = alertVoltageLow.threshold;
+    alerts["humidityLowEnabled"] = alertHumidityLow.enabled;
+    alerts["humidityLowThreshold"] = alertHumidityLow.threshold;
+    alerts["alertCompressorTemp"] = JsonObject();
+    alerts["alertCompressorTemp"]["enabled"] = true;
+    alerts["alertCompressorTemp"]["threshold"] = maxCompressorTemp;
+
+    // Configuración del tanque y calibración
+    JsonObject tank = backup.createNestedObject("tank");
+    tank["capacity"] = tankCapacityLiters;
+    tank["isCalibrated"] = isCalibrated;
+    tank["offset"] = sensorOffset;
+    tank["height"] = tankHeight;
+    tank["tank_capacity"] = tankCapacityLiters;  // Para consistencia
+
+    // Tabla completa de puntos de calibración
+    JsonArray calibPoints = tank.createNestedArray("calibrationPoints");
+    for (int i = 0; i < numCalibrationPoints; i++) {
+      JsonObject point = calibPoints.createNestedObject();
+      point["distance"] = calibrationPoints[i].distance;
+      point["liters"] = calibrationPoints[i].volume;
+    }
+
+    // Serializar el backup a string JSON
+    String backupStr;
+    serializeJson(backup, backupStr);
+
+    // Enviar backup por MQTT para captura automática por la app
+    if (mqttClient.connected()) {
+      bool sent = mqttClient.publish(MQTT_TOPIC_STATUS, ("BACKUP:" + backupStr).c_str(), true);  // QoS 1
+      if (sent) {
+        awgLog(LOG_INFO, "📡 Backup de configuración enviado por MQTT para sincronización automática");
+        awgLog(LOG_DEBUG, "📄 Backup JSON enviado: " + backupStr.substring(0, 200) + (backupStr.length() > 200 ? "..." : ""));
+      } else {
+        awgLog(LOG_ERROR, "❌ Error al enviar backup por MQTT");
+      }
+      mqttClient.loop();  // Procesar MQTT para asegurar envío inmediato
+    } else {
+      awgLog(LOG_WARNING, "⚠️ MQTT no conectado - Backup no enviado");
     }
   }
 
@@ -1615,8 +1989,96 @@ public:
       }
     }
 
+    // Sistema de ensamblaje de configuración fragmentada
+    if (cmd.startsWith("update_config_part1")) {
+      awgLog(LOG_INFO, "📦 Recibida parte 1 de configuración fragmentada");
+      configFragments[0] = cmd.substring(19); // Quitar "update_config_part1"
+      fragmentsReceived[0] = true;
+      configAssembleTimeout = now + 10000; // 10 segundos para ensamblar
+      awgLog(LOG_DEBUG, "📦 Parte 1 almacenada, esperando partes restantes...");
+      return;
+    }
+
+    if (cmd.startsWith("update_config_part2")) {
+      if (!fragmentsReceived[0]) {
+        awgLog(LOG_WARNING, "⚠️ Parte 2 recibida antes que parte 1 - ignorando");
+        return;
+      }
+      awgLog(LOG_INFO, "📦 Recibida parte 2 de configuración fragmentada");
+      configFragments[1] = cmd.substring(19); // Quitar "update_config_part2"
+      fragmentsReceived[1] = true;
+      awgLog(LOG_DEBUG, "📦 Parte 2 almacenada");
+      return;
+    }
+
+    if (cmd.startsWith("update_config_part3")) {
+      if (!fragmentsReceived[0] || !fragmentsReceived[1]) {
+        awgLog(LOG_WARNING, "⚠️ Parte 3 recibida fuera de orden - ignorando");
+        return;
+      }
+      awgLog(LOG_INFO, "📦 Recibida parte 3 de configuración fragmentada");
+      configFragments[2] = cmd.substring(19); // Quitar "update_config_part3"
+      fragmentsReceived[2] = true;
+      awgLog(LOG_DEBUG, "📦 Parte 3 almacenada");
+      return;
+    }
+
+    if (cmd.startsWith("update_config_part4")) {
+      if (!fragmentsReceived[0] || !fragmentsReceived[1] || !fragmentsReceived[2]) {
+        awgLog(LOG_WARNING, "⚠️ Parte 4 recibida fuera de orden - ignorando");
+        return;
+      }
+      awgLog(LOG_INFO, "📦 Recibida parte 4 de configuración fragmentada");
+      configFragments[3] = cmd.substring(19); // Quitar "update_config_part4"
+      fragmentsReceived[3] = true;
+      awgLog(LOG_DEBUG, "📦 Parte 4 almacenada");
+      return;
+    }
+
+    if (cmd == "update_config_assemble") {
+      awgLog(LOG_INFO, "🔧 Iniciando ensamblaje de configuración fragmentada...");
+
+      // Verificar que todas las partes estén presentes
+      bool allPartsReceived = true;
+      for (int i = 0; i < 4; i++) {
+        if (!fragmentsReceived[i]) {
+          allPartsReceived = false;
+          awgLog(LOG_ERROR, "❌ Parte " + String(i+1) + " de configuración faltante");
+          break;
+        }
+      }
+
+      if (!allPartsReceived) {
+        awgLog(LOG_ERROR, "❌ Ensamblaje fallido - partes faltantes");
+        // Reset fragments
+        for (int i = 0; i < 4; i++) {
+          fragmentsReceived[i] = false;
+          configFragments[i] = "";
+        }
+        configAssembleTimeout = 0;
+        return;
+      }
+
+      // Ensamblar el JSON completo
+      String fullJson = "\"mqtt\":" + configFragments[0] + ",\"alerts\":" + configFragments[1] + ",\"control\":" + configFragments[2] + ",\"tank\":" + configFragments[3];
+      fullJson = "{" + fullJson + "}";
+      awgLog(LOG_INFO, "📄 JSON ensamblado completo, longitud: " + String(fullJson.length()));
+      awgLog(LOG_INFO, "📄 JSON completo: '" + fullJson + "'");
+
+      // Procesar como update_config normal
+      processUnifiedConfig(fullJson);
+
+      // Reset fragments
+      for (int i = 0; i < 4; i++) {
+        fragmentsReceived[i] = false;
+        configFragments[i] = "";
+      }
+      configAssembleTimeout = 0;
+      return;
+    }
+
     // Marcar comando como en proceso para comandos críticos
-    bool isCriticalCommand = (cmd.startsWith("update_") || cmd.startsWith("mode") || cmd == "on" || cmd == "off" || cmd == "onc" || cmd == "offc" || cmd.startsWith("calib_"));
+    bool isCriticalCommand = (cmd.startsWith("update_config") || cmd.startsWith("mode") || cmd == "on" || cmd == "off" || cmd == "onc" || cmd == "offc" || cmd.startsWith("calib_"));
 
     if (isCriticalCommand) {
       isProcessingCommand = true;
@@ -1686,13 +2148,10 @@ public:
       awgLog(LOG_INFO, "🔄 Activando automáticamente compresor y ventilador para control automático");
       digitalWrite(COMPRESSOR_RELAY_PIN, LOW);
       awgLog(LOG_INFO, "Compresor ON");
-      if (mqttClient.connected()) {
-        mqttClient.publish(MQTT_TOPIC_STATUS, "COMP_ON");
-      }
       setVentiladorState(true);
       forceStartOnModeSwitch = true;  // Forzar una evaluación inmediata del controlador (one-shot)
       // Publicar estados actuales inmediatamente para sincronización
-      publishCurrentStates();
+      publishActuatorStatus();
       sendStatesToDisplay();
     } else if (cmdToProcess == "mode manual" || cmdToProcess == "mode_manual" || cmdToProcess == "mode:manual") {
       operationMode = MODE_MANUAL;
@@ -1736,13 +2195,16 @@ public:
         preferences.end();
         awgLog(LOG_INFO, "✅ SET_CTRL aplicado: deadband=" + String(control_deadband, 2) + " min_off=" + String(control_min_off) + " max_on=" + String(control_max_on) + " sampling=" + String(control_sampling) + " alpha=" + String(control_alpha, 3));
         Serial1.println("SET_CTRL: OK");
-      } else {
+      }
+      else {
         awgLog(LOG_WARNING, "SET_CTRL formato inválido. Uso: SET_CTRL d,mn,mx,samp,alpha");
         Serial1.println("SET_CTRL: ERR");
       }
-    } else if (cmd == "test") {
+}
+      else if (cmd == "test") {
       testSensor();
-    } else if (cmd == "system_info") {
+      } 
+      else if (cmd == "system_info") {
       unsigned long currentUptime = (millis() - systemStartTime) / 1000;
       unsigned long totalUptimeHours = (totalUptime + currentUptime) / 3600;
 
@@ -1985,417 +2447,33 @@ public:
       delay(1000);
       ESP.restart();
     }
-    // UPDATE_CONFIG: Procesar configuración completa desde la app
-    else if (cmd.startsWith("update_config") || cmd.startsWith("update_unified_config")) {
-      awgLog(LOG_INFO, "📨 Recibido comando UPDATE_CONFIG desde la app");
+    // UPDATE_CONFIG: Procesar configuración unificada completa (solo si no es ACK propio)
+    else if (cmd.startsWith("update_config") && cmd.indexOf("\"type\":\"config_ack\"") == -1) {
+      awgLog(LOG_INFO, "📨 UPDATE_CONFIG RECIBIDO - Procesando configuración unificada...");
+      awgLog(LOG_DEBUG, "📄 Comando completo: '" + cmd + "'");
 
-      // Extraer payload JSON
-      String jsonPayload;
-      if (cmd.startsWith("update_config")) {
-        jsonPayload = cmd.substring(12);  // Quitar "UPDATE_CONFIG"
-      } else if (cmd.startsWith("update_unified_config")) {
-        jsonPayload = cmd.substring(20);  // Quitar "UPDATE_UNIFIED_CONFIG"
-      } else {
-        jsonPayload = cmd;
-      }
-      awgLog(LOG_INFO, "📄 Payload JSON extraído, longitud: " + String(jsonPayload.length()));
-      awgLog(LOG_INFO, "📄 JSON a parsear: " + jsonPayload.substring(0, 200) + (jsonPayload.length() > 200 ? "..." : ""));
+      // Extraer payload JSON - quitar "update_config"
+      String jsonPayload = cmd.substring(12);
+      jsonPayload.trim();
 
-      // Parsear JSON con documento más grande para incluir MQTT
-      DynamicJsonDocument doc(1536);
-      DeserializationError error = deserializeJson(doc, jsonPayload);
-
-      if (error) {
-        awgLog(LOG_ERROR, "❌ Error parseando UPDATE_CONFIG: " + String(error.c_str()));
+      if (jsonPayload.length() == 0) {
+        awgLog(LOG_ERROR, "❌ Payload JSON vacío");
         Serial1.println("UPDATE_CONFIG: ERR");
-      } else {
-        awgLog(LOG_INFO, "✅ JSON parseado correctamente");
-
-        // Procesar configuración con logs organizados
-        String changesSummary = "";
-        int changeCount = 0;
-        bool hasChanges = false;
-        bool mqttChanged = false;
-
-        // Procesar configuración MQTT primero
-        if (doc.containsKey("mqtt")) {
-          JsonObject mqtt = doc["mqtt"];
-          awgLog(LOG_DEBUG, "📡 Procesando configuración MQTT...");
-
-          String newBroker = mqtt["broker"] | MQTT_BROKER;
-          int newPort = mqtt["port"] | MQTT_PORT;
-
-          if (newBroker != mqttBroker || newPort != mqttPort) {
-            awgLog(LOG_INFO, "🔄 CAMBIO DE CONFIGURACIÓN MQTT DETECTADO:");
-            awgLog(LOG_INFO, "  📡 BROKER ANTERIOR: " + mqttBroker + ":" + String(mqttPort));
-            awgLog(LOG_INFO, "  🎯 BROKER NUEVO: " + newBroker + ":" + String(newPort));
-
-            // Guardar nueva configuración en Preferences
-            preferences.begin("awg-mqtt", false);
-            preferences.putString("broker", newBroker);
-            preferences.putInt("port", newPort);
-            preferences.end();
-
-            // Actualizar variables globales
-            mqttBroker = newBroker;
-            mqttPort = newPort;
-            mqttChanged = true;
-            changesSummary += "MQTT: " + newBroker + ":" + String(newPort) + " | ";
-            changeCount++;
-            hasChanges = true;
-          }
-        }
-
-        // Procesar alertas
-        if (doc.containsKey("alerts")) {
-          JsonObject alerts = doc["alerts"];
-          awgLog(LOG_DEBUG, "📊 Procesando configuración de alertas...");
-
-          // Tanque lleno con validación de umbral
-          if (alerts.containsKey("tankFullEnabled")) {
-            bool newEn = alerts["tankFullEnabled"] | alertTankFull.enabled;
-            float newThr = alerts["tankFullThreshold"] | alertTankFull.threshold;
-            if (newThr >= 50.0 && newThr <= 100.0) {  // Validar rango del umbral
-              if (newEn != alertTankFull.enabled || fabs(newThr - alertTankFull.threshold) > 0.01) {
-                alertTankFull.enabled = newEn;
-                alertTankFull.threshold = newThr;
-                changesSummary += "Tanque lleno: " + String(newEn ? "ON" : "OFF") + " " + String(newThr, 1) + "% | ";
-                changeCount++;
-                hasChanges = true;
-                awgLog(LOG_DEBUG, "✅ Alerta actualizada: " + String(newEn ? "ON" : "OFF") + " " + String(newThr, 1) + "%");
-              }
-            } else {
-              awgLog(LOG_WARNING, "⚠️ Umbral de tanque lleno inválido: " + String(newThr, 1) + "% (debe estar entre 50-100%)");
-            }
-          }
-
-          // Voltaje bajo con validación de umbral
-          if (alerts.containsKey("voltageLowEnabled")) {
-            bool newEn = alerts["voltageLowEnabled"] | alertVoltageLow.enabled;
-            float newThr = alerts["voltageLowThreshold"] | alertVoltageLow.threshold;
-            if (newThr >= 80.0 && newThr <= 130.0) {  // Validar rango del umbral
-              if (newEn != alertVoltageLow.enabled || fabs(newThr - alertVoltageLow.threshold) > 0.01) {
-                alertVoltageLow.enabled = newEn;
-                alertVoltageLow.threshold = newThr;
-                changesSummary += "Voltaje bajo: " + String(newEn ? "ON" : "OFF") + " " + String(newThr, 1) + "V | ";
-                changeCount++;
-                hasChanges = true;
-                awgLog(LOG_DEBUG, "✅ Alerta actualizada: " + String(newEn ? "ON" : "OFF") + " " + String(newThr, 1) + "V");
-              }
-            } else {
-              awgLog(LOG_WARNING, "⚠️ Umbral de voltaje bajo inválido: " + String(newThr, 1) + "V (debe estar entre 80-130V)");
-            }
-          }
-
-          // Humedad baja con validación de umbral
-          if (alerts.containsKey("humidityLowEnabled")) {
-            bool newEn = alerts["humidityLowEnabled"] | alertHumidityLow.enabled;
-            float newThr = alerts["humidityLowThreshold"] | alertHumidityLow.threshold;
-            if (newThr >= 5.0 && newThr <= 50.0) {  // Validar rango del umbral
-              if (newEn != alertHumidityLow.enabled || fabs(newThr - alertHumidityLow.threshold) > 0.01) {
-                alertHumidityLow.enabled = newEn;
-                alertHumidityLow.threshold = newThr;
-                changesSummary += "Humedad baja: " + String(newEn ? "ON" : "OFF") + " " + String(newThr, 1) + "% | ";
-                changeCount++;
-                hasChanges = true;
-                awgLog(LOG_DEBUG, "✅ Alerta actualizada: " + String(newEn ? "ON" : "OFF") + " " + String(newThr, 1) + "%");
-              }
-            } else {
-              awgLog(LOG_WARNING, "⚠️ Umbral de humedad baja inválido: " + String(newThr, 1) + "% (debe estar entre 5-50%)");
-            }
-          }
-        }
-
-        // Procesar parámetros de control
-        if (doc.containsKey("control")) {
-          JsonObject control = doc["control"];
-          awgLog(LOG_DEBUG, "🎛️ Procesando parámetros de control...");
-
-          // Banda muerta con validación de rango
-          if (control.containsKey("deadband")) {
-            float newVal = control["deadband"] | control_deadband;
-            if (newVal >= 0.5 && newVal <= 10.0) {  // Validar rango razonable
-              if (fabs(newVal - control_deadband) > 0.01) {
-                control_deadband = newVal;
-                changesSummary += "Banda muerta: " + String(newVal, 1) + "°C | ";
-                changeCount++;
-                hasChanges = true;
-                awgLog(LOG_INFO, "✅ Banda muerta actualizada: " + String(newVal, 1) + "°C");
-              }
-            } else {
-              awgLog(LOG_WARNING, "⚠️ Banda muerta inválida: " + String(newVal, 1) + "°C (debe estar entre 0.5-10.0°C)");
-            }
-          }
-
-          // Temperatura máxima del compresor
-          if (control.containsKey("maxCompressorTemp")) {
-            float newTemp = control["maxCompressorTemp"] | maxCompressorTemp;
-            if (newTemp >= 50.0 && newTemp <= 150.0) {  // Validar rango razonable
-              if (fabs(newTemp - maxCompressorTemp) > 0.01) {
-                maxCompressorTemp = newTemp;
-                alertCompressorTemp.threshold = newTemp;
-                changesSummary += "Temp máx compresor: " + String(newTemp, 1) + "°C | ";
-                changeCount++;
-                hasChanges = true;
-                awgLog(LOG_INFO, "✅ Temperatura máxima del compresor actualizada: " + String(newTemp, 1) + "°C");
-              }
-            } else {
-              awgLog(LOG_WARNING, "⚠️ Temperatura máxima del compresor inválida: " + String(newTemp, 1) + "°C (debe estar entre 50.0-150.0°C)");
-            }
-          }
-
-          // Tiempo mínimo apagado con validación
-          if (control.containsKey("minOff")) {
-            int newVal = control["minOff"] | control_min_off;
-            if (newVal >= 10 && newVal <= 300) {  // Validar rango razonable
-              if (newVal != control_min_off) {
-                control_min_off = newVal;
-                changesSummary += "Min apagado: " + String(newVal) + "s | ";
-                changeCount++;
-                hasChanges = true;
-                awgLog(LOG_INFO, "✅ Tiempo min apagado actualizado: " + String(newVal) + "s");
-              }
-            } else {
-              awgLog(LOG_WARNING, "⚠️ Tiempo min apagado inválido: " + String(newVal) + "s (debe estar entre 10-300s)");
-            }
-          }
-
-          // Tiempo máximo encendido con validación
-          if (control.containsKey("maxOn")) {
-            int newVal = control["maxOn"] | control_max_on;
-            if (newVal >= 300 && newVal <= 7200) {  // Validar rango razonable
-              if (newVal != control_max_on) {
-                control_max_on = newVal;
-                changesSummary += "Max encendido: " + String(newVal) + "s | ";
-                changeCount++;
-                hasChanges = true;
-                awgLog(LOG_INFO, "✅ Tiempo max encendido actualizado: " + String(newVal) + "s");
-              }
-            } else {
-              awgLog(LOG_WARNING, "⚠️ Tiempo max encendido inválido: " + String(newVal) + "s (debe estar entre 300-7200s)");
-            }
-          }
-
-          // Intervalo de muestreo con validación
-          if (control.containsKey("sampling")) {
-            int newVal = control["sampling"] | control_sampling;
-            if (newVal >= 2 && newVal <= 60) {  // Validar rango razonable
-              if (newVal != control_sampling) {
-                control_sampling = newVal;
-                changesSummary += "Muestreo: " + String(newVal) + "s | ";
-                changeCount++;
-                hasChanges = true;
-                awgLog(LOG_INFO, "✅ Intervalo de muestreo actualizado: " + String(newVal) + "s");
-              }
-            } else {
-              awgLog(LOG_WARNING, "⚠️ Intervalo de muestreo inválido: " + String(newVal) + "s (debe estar entre 2-60s)");
-            }
-          }
-
-          // Factor de suavizado con validación
-          if (control.containsKey("alpha")) {
-            float newVal = control["alpha"] | control_alpha;
-            if (newVal >= 0.0 && newVal <= 1.0) {  // Validar rango 0-1
-              if (fabs(newVal - control_alpha) > 0.01) {
-                control_alpha = newVal;
-                changesSummary += "Suavizado: " + String(newVal, 2) + " | ";
-                changeCount++;
-                hasChanges = true;
-                awgLog(LOG_INFO, "✅ Factor de suavizado actualizado: " + String(newVal, 2));
-              }
-            } else {
-              awgLog(LOG_WARNING, "⚠️ Factor de suavizado inválido: " + String(newVal, 2) + " (debe estar entre 0.0-1.0)");
-            }
-          }
-        }
-
-        // Procesar configuración del tanque con validaciones mejoradas
-        if (doc.containsKey("tank")) {
-          JsonObject tank = doc["tank"];
-          awgLog(LOG_DEBUG, "🪣 Procesando configuración del tanque...");
-
-          // Capacidad del tanque
-          if (tank.containsKey("capacity")) {
-            float newCapacity = tank["capacity"] | 1000.0f;
-            if (newCapacity > 0 && newCapacity <= 10000) {  // Validar rango razonable
-              if (fabs(newCapacity - tankCapacityLiters) > 0.01) {
-                tankCapacityLiters = newCapacity;
-                changesSummary += "Capacidad tanque: " + String(newCapacity, 0) + "L | ";
-                changeCount++;
-                hasChanges = true;
-                awgLog(LOG_INFO, "✅ Capacidad del tanque actualizada: " + String(newCapacity, 0) + "L");
-              }
-            } else {
-              awgLog(LOG_WARNING, "⚠️ Capacidad del tanque inválida: " + String(newCapacity, 0) + "L (ignorando)");
-            }
-          }
-
-          // Estado de calibración
-          if (tank.containsKey("isCalibrated")) {
-            bool newCalibrated = tank["isCalibrated"] | isCalibrated;
-            if (newCalibrated != isCalibrated) {
-              isCalibrated = newCalibrated;
-              changesSummary += "Calibrado: " + String(newCalibrated ? "SI" : "NO") + " | ";
-              changeCount++;
-              hasChanges = true;
-              awgLog(LOG_INFO, "✅ Estado de calibración actualizado: " + String(newCalibrated ? "SI" : "NO"));
-            }
-          }
-
-          // Puntos de calibración con validación completa
-          if (tank.containsKey("calibrationPoints")) {
-            JsonArray points = tank["calibrationPoints"];
-            int validPoints = 0;
-            if (points.size() > 0 && points.size() <= MAX_CALIBRATION_POINTS) {
-              // Validar y cargar puntos
-              for (int i = 0; i < points.size() && validPoints < MAX_CALIBRATION_POINTS; i++) {
-                float dist = points[i]["distance"] | -1.0f;
-                float vol = points[i]["liters"] | -1.0f;
-
-                // Validar valores
-                if (dist >= 0 && dist <= 400 && vol >= 0 && vol <= 10000) {
-                  calibrationPoints[validPoints].distance = dist;
-                  calibrationPoints[validPoints].volume = vol;
-                  validPoints++;
-                } else {
-                  awgLog(LOG_WARNING, "⚠️ Punto de calibración inválido ignorado: dist=" + String(dist, 1) + ", vol=" + String(vol, 1));
-                }
-              }
-              if (validPoints > 0) {
-                numCalibrationPoints = validPoints;
-                sortCalibrationPoints();
-                calculateTankHeight();
-                saveCalibration();
-                changesSummary += "Puntos calibración: " + String(validPoints) + " | ";
-                changeCount++;
-                hasChanges = true;
-                awgLog(LOG_INFO, "✅ Puntos de calibración actualizados: " + String(validPoints) + " puntos válidos");
-              } else {
-                awgLog(LOG_WARNING, "⚠️ No se encontraron puntos de calibración válidos");
-              }
-            } else {
-              awgLog(LOG_WARNING, "⚠️ Número de puntos de calibración inválido: " + String(points.size()));
-            }
-          }
-
-          // Offset ultrasónico con validación
-          if (tank.containsKey("ultrasonicOffset")) {
-            float newOffset = tank["ultrasonicOffset"] | sensorOffset;
-            if (newOffset >= -50.0 && newOffset <= 50.0) {  // Validar rango razonable
-              if (fabs(newOffset - sensorOffset) > 0.01) {
-                sensorOffset = newOffset;
-                changesSummary += "Offset sensor: " + String(newOffset, 1) + "cm | ";
-                changeCount++;
-                hasChanges = true;
-                awgLog(LOG_INFO, "✅ Offset del sensor actualizado: " + String(newOffset, 1) + "cm");
-              }
-            } else {
-              awgLog(LOG_WARNING, "⚠️ Offset del sensor fuera de rango: " + String(newOffset, 1) + "cm (ignorando)");
-            }
-          }
-        }
-
-        // Procesar configuración de notificaciones
-        if (doc.containsKey("notifications")) {
-          JsonObject notifications = doc["notifications"];
-          awgLog(LOG_DEBUG, "🔔 Procesando configuración de notificaciones...");
-
-          // Reporte diario
-          if (notifications.containsKey("dailyReportEnabled")) {
-            // Nota: Esta configuración no se guarda actualmente en el ESP32
-            // Solo se maneja en la app, pero podemos mostrar que se recibió
-            bool dailyEnabled = notifications["dailyReportEnabled"] | false;
-            awgLog(LOG_INFO, "ℹ️ Reporte diario: " + String(dailyEnabled ? "HABILITADO" : "DESHABILITADO"));
-          }
-
-          if (notifications.containsKey("dailyReportHour")) {
-            int hour = notifications["dailyReportHour"] | 20;
-            int minute = notifications["dailyReportMinute"] | 0;
-            awgLog(LOG_INFO, "ℹ️ Hora reporte diario: " + String(hour) + ":" + String(minute < 10 ? "0" : "") + String(minute));
-          }
-
-          // Notificaciones push
-          if (notifications.containsKey("showNotifications")) {
-            bool showNotif = notifications["showNotifications"] | true;
-            awgLog(LOG_INFO, "ℹ️ Notificaciones push: " + String(showNotif ? "HABILITADAS" : "DESHABILITADAS"));
-          }
-        }
-
-        // Reconectar MQTT si cambió la configuración
-        if (mqttChanged) {
-          awgLog(LOG_INFO, "🔌 Reconectando MQTT con nueva configuración...");
-          mqttClient.disconnect();
-          delay(1000);
-          connectMQTT();
-
-          // Publicar estado de conexión actualizado
-          if (mqttClient.connected()) {
-            awgLog(LOG_INFO, "✅ Reconexión MQTT exitosa - Broker actual: " + mqttBroker + ":" + String(mqttPort));
-            mqttClient.publish(MQTT_TOPIC_STATUS, "ESP32_AWG_ONLINE", true);
-            // Re-suscribirse a los topics después de reconectar
-            mqttClient.subscribe(MQTT_TOPIC_CONTROL);
-            mqttClient.subscribe(MQTT_TOPIC_CONFIG);
-          } else {
-            awgLog(LOG_ERROR, "❌ Reconexión MQTT fallida - Broker configurado: " + mqttBroker + ":" + String(mqttPort));
-          }
-        }
-
-        // Mostrar resumen de cambios con visualización mejorada
-        if (hasChanges) {
-          awgLog(LOG_INFO, "✅ Configuración completa actualizada exitosamente (" + String(changeCount) + " cambios)");
-          if (changesSummary.length() > 0) {
-            awgLog(LOG_DEBUG, "📋 Cambios: " + changesSummary.substring(0, changesSummary.length() - 3));
-          }
-
-          // Mostrar configuración actual completa en Serial para debugging
-          Serial.println("\n=== CONFIGURACIÓN ACTUALIZADA ===");
-          Serial.println("📡 MQTT:");
-          Serial.printf("  Broker: %s:%d\n", mqttBroker.c_str(), mqttPort);
-          Serial.println("🎛️ PARÁMETROS DE CONTROL:");
-          Serial.printf("  Banda muerta: %.1f°C\n", control_deadband);
-          Serial.printf("  Tiempo min apagado: %d segundos\n", control_min_off);
-          Serial.printf("  Tiempo max encendido: %d segundos\n", control_max_on);
-          Serial.printf("  Intervalo muestreo: %d segundos\n", control_sampling);
-          Serial.printf("  Factor suavizado: %.2f\n", control_alpha);
-
-          Serial.println("🚨 CONFIGURACIÓN DE ALERTAS:");
-          Serial.printf("  Tanque lleno: %s (%.1f%%)\n", alertTankFull.enabled ? "ON" : "OFF", alertTankFull.threshold);
-          Serial.printf("  Voltaje bajo: %s (%.1fV)\n", alertVoltageLow.enabled ? "ON" : "OFF", alertVoltageLow.threshold);
-          Serial.printf("  Humedad baja: %s (%.1f%%)\n", alertHumidityLow.enabled ? "ON" : "OFF", alertHumidityLow.threshold);
-
-          Serial.println("🪣 CONFIGURACIÓN DEL TANQUE:");
-          Serial.printf("  Calibrado: %s\n", isCalibrated ? "SI" : "NO");
-          Serial.printf("  Offset ultrasónico: %.1f cm\n", sensorOffset);
-          Serial.printf("  Capacidad tanque: %.0f L\n", tankCapacityLiters);
-          Serial.printf("  Puntos calibración: %d\n", numCalibrationPoints);
-          if (isCalibrated && numCalibrationPoints >= 2) {
-            Serial.printf("  Altura tanque: %.1f cm\n", tankHeight);
-          }
-          Serial.println("================================\n");
-
-          // Guardar configuración en memoria no volátil
-          awgLog(LOG_DEBUG, "💾 Guardando configuración...");
-          saveAlertConfig();
-          preferences.begin("awg-config", false);
-          preferences.putFloat("ctrl_deadband", control_deadband);
-          preferences.putInt("ctrl_min_off", control_min_off);
-          preferences.putInt("ctrl_max_on", control_max_on);
-          preferences.putInt("ctrl_sampling", control_sampling);
-          preferences.putFloat("ctrl_alpha", control_alpha);
-          preferences.end();
-          awgLog(LOG_INFO, "💾 Configuración guardada en memoria");
-
-          // Enviar confirmación robusta a la app vía MQTT
-          sendConfigAckToApp(changeCount);
-          Serial1.println("UPDATE_CONFIG: OK");
-          awgLog(LOG_INFO, "🎉 Actualización de configuración completada exitosamente");
-        } else {
-          awgLog(LOG_INFO, "ℹ️ Configuración recibida sin cambios");
-          sendConfigAckToApp(0);  // Confirmación de "sin cambios"
-          Serial1.println("UPDATE_CONFIG: OK");
-        }
+        return;
       }
-    } else if (cmd == "system_status") {
+
+      awgLog(LOG_INFO, "📄 Procesando JSON unificado: " + jsonPayload.substring(0, 50) + (jsonPayload.length() > 50 ? "..." : ""));
+      awgLog(LOG_DEBUG, "📏 Longitud del payload JSON: " + String(jsonPayload.length()) + " caracteres");
+
+      // Procesar configuración unificada
+      processUnifiedConfig(jsonPayload);
+    }
+    // Ignorar mensajes de confirmación de configuración (ACK) - no procesar como comandos
+    else if (cmd.indexOf("\"type\":\"config_ack\"") != -1) {
+      awgLog(LOG_DEBUG, "📨 Mensaje ACK de configuración recibido - ignorando (es respuesta automática)");
+      return;  // Salir sin marcar como comando no reconocido
+    }
+    else if (cmd == "system_status") {
       unsigned long currentUptime = (millis() - systemStartTime) / 1000;
       unsigned long totalUptimeHours = (totalUptime + currentUptime) / 3600;
 
@@ -2465,7 +2543,49 @@ public:
       Serial.println("║");
 
       Serial.println("╚══════════════════════════════════════════════════════════════╝");
-    } else if (cmd == "backup_config") {
+    }
+    else if (cmd == "config_status") {
+      Serial.println("╔══════════════════════════════════════════════════════════════╗");
+      Serial.println("║            CONFIGURACIÓN ACTUAL - DROPSTER AWG               ║");
+      Serial.println("╠══════════════════════════════════════════════════════════════╣");
+
+      Serial.println("║ 🎛️ PARÁMETROS DE CONTROL:");
+      Serial.printf("║   • Banda muerta: %.1f°C\n", control_deadband);
+      Serial.printf("║   • Tiempo min apagado: %d segundos\n", control_min_off);
+      Serial.printf("║   • Tiempo max encendido: %d segundos\n", control_max_on);
+      Serial.printf("║   • Intervalo muestreo: %d segundos\n", control_sampling);
+      Serial.printf("║   • Factor suavizado: %.2f\n", control_alpha);
+      Serial.printf("║   • Temp máx compresor: %.1f°C\n", maxCompressorTemp);
+      Serial.println("║");
+
+      Serial.println("║ 🚨 CONFIGURACIÓN DE ALERTAS:");
+      Serial.printf("║   • Tanque lleno: %s (%.1f%%)\n", alertTankFull.enabled ? "ON" : "OFF", alertTankFull.threshold);
+      Serial.printf("║   • Voltaje bajo: %s (%.1fV)\n", alertVoltageLow.enabled ? "ON" : "OFF", alertVoltageLow.threshold);
+      Serial.printf("║   • Humedad baja: %s (%.1f%%)\n", alertHumidityLow.enabled ? "ON" : "OFF", alertHumidityLow.threshold);
+      Serial.println("║");
+
+      Serial.println("║ 🪣 CONFIGURACIÓN DEL TANQUE:");
+      Serial.printf("║   • Calibrado: %s\n", isCalibrated ? "SI" : "NO");
+      Serial.printf("║   • Offset ultrasónico: %.1f cm\n", sensorOffset);
+      Serial.printf("║   • Capacidad tanque: %.0f L\n", tankCapacityLiters);
+      Serial.printf("║   • Puntos calibración: %d\n", numCalibrationPoints);
+      if (isCalibrated && numCalibrationPoints >= 2) {
+        Serial.printf("║   • Altura tanque: %.1f cm\n", tankHeight);
+      }
+      Serial.println("║");
+
+      Serial.println("║ 📡 CONFIGURACIÓN MQTT:");
+      Serial.printf("║   • Broker: %s:%d\n", mqttBroker.c_str(), mqttPort);
+      Serial.println("║");
+
+      Serial.println("║ 📊 ESTADO ACTUAL:");
+      Serial.printf("║   • Modo operación: %s\n", operationMode == MODE_AUTO ? "AUTO" : "MANUAL");
+      Serial.printf("║   • Nivel log: %d\n", logLevel);
+      Serial.println("║");
+
+      Serial.println("╚══════════════════════════════════════════════════════════════╝");
+    }
+    else if (cmd == "backup_config") {
       /* Genera un respaldo completo de toda la configuración del sistema AWG en formato JSON.
          * El backup incluye: Configuración MQTT - Parámetros de control - Configuración de alertas - Configuración del tanque - Tabla completa de puntos de calibración
          *
@@ -2532,16 +2652,18 @@ public:
 
       // Enviar backup por MQTT para captura automática por la app
       if (mqttClient.connected()) {
-        mqttClient.publish(MQTT_TOPIC_STATUS, ("BACKUP:" + backupStr).c_str());
+        mqttClient.publish(MQTT_TOPIC_SYSTEM, ("BACKUP:" + backupStr).c_str());
         awgLog(LOG_INFO, "📡 Backup enviado por MQTT para captura automática por la app");
       } else {
         awgLog(LOG_WARNING, "⚠️ MQTT no conectado - Backup solo disponible en Serial");
       }
       awgLog(LOG_INFO, "✅ Backup de configuración completado exitosamente");
       awgLog(LOG_INFO, "💡 Use este backup para restaurar configuración o troubleshooting");
-    } else if (cmdToProcess == "help") {
+    }
+    else if (cmdToProcess == "help") {
       printHelp();
-    } else if (cmdToProcess.length() > 0) {
+    }
+    else if (cmdToProcess.length() > 0) {
       awgLog(LOG_WARNING, "Comando no reconocido: " + cmdToProcess);
     }
 
@@ -2572,6 +2694,7 @@ public:
     help += "║\n";
     help += "║ 📊 MONITOREO:\n";
     help += "║   • SYSTEM_STATUS: Estado completo del sistema\n";
+    help += "║   • CONFIG_STATUS: Mostrar configuración actual\n";
     help += "║   • TEST: Probar sensor ultrasónico\n";
     help += "║   • CHECK_SENSORS: Diagnóstico detallado de todos los sensores\n";
     help += "║\n";
@@ -2639,27 +2762,6 @@ public:
     awgLog(LOG_INFO, "=== PRUEBA FINALIZADA ===");
   }
 
-  float validateTemp(float temp) {
-    return (temp > -50.0 && temp < 100.0) ? temp : 0.0;
-  }
-
-  float validateHumidity(float hum) {
-    return (hum >= 0.0 && hum <= 100.0) ? hum : 0.0;
-  }
-
-  float calculateDewPoint(float temp, float hum) {
-    const float a = 17.62, b = 243.12;
-    float factor = log(hum / 100.0) + (a * temp) / (b + temp);
-    return (b * factor) / (a - factor);
-  }
-
-  float calculateAbsoluteHumidity(float temp, float hum, float pres) {
-    float presPa = pres * 100.0;
-    float Pws = A_MAGNUS * exp((L / Rv) * (1.0 / ZERO_CELSIUS - 1.0 / (temp + ZERO_CELSIUS)));
-    float Pw = (hum / 100.0) * Pws;
-    float mixRatio = 0.622 * (Pw / (presPa - Pw));
-    return (mixRatio * presPa * 1000.0) / (Rv * (temp + ZERO_CELSIUS));
-  }
 
   // Función para calcular temperatura del termistor NTC
   float calculateTemperature(float resistance) {
@@ -2672,6 +2774,7 @@ public:
     steinhart = 1.0 / steinhart;                  // Invertir para T en Kelvin
     return steinhart - ZERO_CELSIUS;              // Convertir a Celsius
   }
+
 };
 
 AWGSensorManager sensorManager;
@@ -2820,6 +2923,24 @@ if (alertTankFull.enabled && data.waterVolume >= 0) {
     awgLog(LOG_DEBUG, "💨 Alerta humedad baja no verificada - Habilitada: " + String(alertHumidityLow.enabled ? "SI" : "NO") + ", BME online: " + String(bmeOnline ? "SI" : "NO") + ", Humedad válida: " + String(data.bmeHum > 0 ? "SI" : "NO"));
   }
 
+  // Control automático del ventilador del compresor basado en temperatura (solo en modo AUTO)
+  if (operationMode == MODE_AUTO && data.compressorTemp > 0) {  // Solo en modo automático y con lectura válida
+    bool compressorFanOn = (digitalRead(COMPRESSOR_FAN_RELAY_PIN) == LOW);
+    float tempThresholdOn = maxCompressorTemp - 10.0;   // Encender a 10°C por debajo del máximo
+    float tempThresholdOff = maxCompressorTemp - 20.0;  // Apagar a 20°C por debajo del máximo
+
+    // Encender ventilador si temperatura está cerca del límite superior
+    if (data.compressorTemp >= tempThresholdOn && !compressorFanOn) {
+      setCompressorFanState(true);
+      awgLog(LOG_INFO, "🌡️ VENTILADOR COMPRESOR ENCENDIDO (AUTO) - Temperatura: " + String(data.compressorTemp, 1) + "°C (umbral: " + String(tempThresholdOn, 1) + "°C)");
+    }
+    // Apagar ventilador si temperatura bajó lo suficiente
+    else if (data.compressorTemp <= tempThresholdOff && compressorFanOn) {
+      setCompressorFanState(false);
+      awgLog(LOG_INFO, "🌡️ VENTILADOR COMPRESOR APAGADO (AUTO) - Temperatura: " + String(data.compressorTemp, 1) + "°C (umbral: " + String(tempThresholdOff, 1) + "°C)");
+    }
+  }
+
   // Alerta temperatura compresor alta (Termistor NTC)
   if (alertCompressorTemp.enabled && data.compressorTemp > 0) {  // Solo si hay lectura válida
     bool isHigh = (data.compressorTemp >= alertCompressorTemp.threshold);
@@ -2834,9 +2955,17 @@ if (alertTankFull.enabled && data.waterVolume >= 0) {
       if (mqttClient.connected()) {
         mqttClient.publish(MQTT_TOPIC_STATUS, "COMP_OFF");
       }
+      // Actualizar display con el nuevo estado
+      sendStatesToDisplay();
     } else if (!isHigh && alertCompressorTempActive) {
       awgLog(LOG_INFO, "✅ Temperatura del compresor normalizada");
       alertCompressorTempActive = false;  // Reset cuando baja
+    }
+
+    // Si acabamos de apagar el compresor por seguridad, publicar estados inmediatamente
+    if (isHigh && !alertCompressorTempActive) {
+      awgLog(LOG_INFO, "🚨 Publicando estados inmediatamente después de apagado por seguridad");
+      publishActuatorStatus();  // Publicar estados actualizados inmediatamente
     }
   }
 }
@@ -2890,31 +3019,31 @@ void onMqttMessage(char* topic, byte* payload, unsigned int length) {
     awgLog(LOG_WARNING, "⚠️ Mensaje MQTT vacío o inválido recibido");
     return;
   }
-  String message;
 
-  for (unsigned int i = 0; i < length; i++) {
-    message += (char)payload[i];
+  // Verificar si el mensaje está truncado comparando con la longitud esperada
+  if (length < 10) {  // Mensajes muy cortos pueden indicar truncamiento
+    awgLog(LOG_WARNING, "⚠️ Mensaje MQTT muy corto recibido: " + String(length) + " bytes");
   }
-  String topicStr = String(topic);
-  awgLog(LOG_INFO, "📨 MQTT recibido - Topic: '" + topicStr + "', Longitud: " + String(length) + " bytes");
 
-  // Log detallado para mensajes de control y config
-  if (topicStr == MQTT_TOPIC_CONTROL) {
-    awgLog(LOG_INFO, "🎛️ Comando de control recibido: " + message.substring(0, 100) + (message.length() > 100 ? "..." : ""));
-  } else if (topicStr == MQTT_TOPIC_CONFIG) {
-    awgLog(LOG_INFO, "⚙️ Comando de configuración recibido: " + message.substring(0, 100) + (message.length() > 100 ? "..." : ""));
-  }
-  // Procesar mensaje según el topic
-  if (topicStr == MQTT_TOPIC_CONTROL) {
-    awgLog(LOG_DEBUG, "🔄 Procesando comando de control...");
-    sensorManager.processCommand(message);
-    awgLog(LOG_DEBUG, "✅ Comando procesado");
-  } else if (topicStr == MQTT_TOPIC_CONFIG) {
-    awgLog(LOG_DEBUG, "🔄 Procesando comando de configuración...");
-    sensorManager.processCommand(message);
-    awgLog(LOG_DEBUG, "✅ Comando de configuración procesado");
-  } else {
-    awgLog(LOG_DEBUG, "📭 Mensaje ignorado - Topic: " + topicStr + " (no es control ni config)");
+  try {
+    String message;
+    for (unsigned int i = 0; i < length; i++) {
+      message += (char)payload[i];
+    }
+    String topicStr = String(topic);
+    awgLog(LOG_INFO, "📨 MQTT recibido - Topic: '" + topicStr + "', Longitud: " + String(length) + " bytes");
+    awgLog(LOG_DEBUG, "📨 Mensaje completo: '" + message + "'");
+
+    // Procesar mensaje según el topic
+    if (topicStr == MQTT_TOPIC_CONTROL) {
+      awgLog(LOG_INFO, "🎛️ Comando recibido: " + message);
+      sensorManager.processCommand(message);
+      awgLog(LOG_DEBUG, "✅ Comando procesado");
+    } else {
+      awgLog(LOG_WARNING, "📭 Topic no esperado: " + topicStr + " - mensaje ignorado");
+    }
+  } catch (...) {
+    awgLog(LOG_ERROR, "❌ Error crítico en callback MQTT - excepción capturada");
   }
 }
 
@@ -2947,6 +3076,23 @@ void setPumpState(bool newState) {
       float waterPercent = sensorManager.calculateWaterPercent(sensorData.distance, sensorData.waterVolume);
       if (waterPercent < MIN_WATER_LEVEL) {
         awgLog(LOG_ERROR, "🚫 SEGURIDAD: Bomba NO encendida - Nivel de agua insuficiente: " + String(waterPercent, 1) + "% (mín: " + String(MIN_WATER_LEVEL, 1) + "%)");
+
+        // Enviar mensaje MQTT de error a la app
+        if (mqttClient.connected()) {
+          StaticJsonDocument<150> errorDoc;
+          errorDoc["type"] = "pump_error";
+          errorDoc["reason"] = "low_water";
+          errorDoc["message"] = "Nivel de agua insuficiente para activar la bomba";
+          errorDoc["current_level"] = waterPercent;
+          errorDoc["min_level"] = MIN_WATER_LEVEL;
+
+          char errorBuffer[150];
+          size_t errorLen = serializeJson(errorDoc, errorBuffer, sizeof(errorBuffer));
+          if (errorLen > 0 && errorLen < sizeof(errorBuffer)) {
+            mqttClient.publish(MQTT_TOPIC_ERRORS, errorBuffer, true);  // QoS 1
+            awgLog(LOG_INFO, "📤 Mensaje de error de bomba enviado por MQTT: nivel de agua insuficiente");
+          }
+        }
         return;
       }
     }
@@ -2954,6 +3100,23 @@ void setPumpState(bool newState) {
     AWGSensorManager::SensorData_t sensorData = sensorManager.getSensorData();
     if (sensorManager.getPzemOnline() && sensorData.voltage > 0.1 && sensorData.voltage < 100.0) {
       awgLog(LOG_ERROR, "🚫 SEGURIDAD: Bomba NO encendida - Voltaje bajo: " + String(sensorData.voltage, 1) + "V (mín: 100.0V)");
+
+      // Enviar mensaje MQTT de error a la app
+      if (mqttClient.connected()) {
+        StaticJsonDocument<150> errorDoc;
+        errorDoc["type"] = "pump_error";
+        errorDoc["reason"] = "low_voltage";
+        errorDoc["message"] = "Voltaje insuficiente para activar la bomba";
+        errorDoc["current_voltage"] = sensorData.voltage;
+        errorDoc["min_voltage"] = 100.0;
+
+        char errorBuffer[150];
+        size_t errorLen = serializeJson(errorDoc, errorBuffer, sizeof(errorBuffer));
+        if (errorLen > 0 && errorLen < sizeof(errorBuffer)) {
+          mqttClient.publish(MQTT_TOPIC_ERRORS, errorBuffer, true);  // QoS 1
+          awgLog(LOG_INFO, "📤 Mensaje de error de bomba enviado por MQTT: voltaje insuficiente");
+        }
+      }
       return;
     }
   }
@@ -2997,7 +3160,7 @@ void publishConsolidatedStatus() {
   char statusBuffer[300];
   size_t statusLen = serializeJson(statusDoc, statusBuffer, sizeof(statusBuffer));
   if (statusLen > 0 && statusLen < sizeof(statusBuffer)) {
-    mqttClient.publish(MQTT_TOPIC_STATUS, statusBuffer, false);
+    mqttClient.publish(MQTT_TOPIC_STATUS, statusBuffer, true);  // QoS 1 para asegurar entrega
     awgLog(LOG_DEBUG, "📊 Estado consolidado enviado - Uptime: " + String(millis() / 1000) + "s");
   }
 }
@@ -3056,10 +3219,11 @@ void connectMQTT() {
   awgLog(LOG_INFO, "🎯 BROKER MQTT OBJETIVO: " + mqttBroker + ":" + String(mqttPort));
   awgLog(LOG_INFO, "📝 TOPIC MQTT OBJETIVO: " + String(MQTT_TOPIC_DATA));
   awgLog(LOG_INFO, "🔍 Verificando configuración MQTT actual...");
+  awgLog(LOG_DEBUG, "🔍 [DEBUG MQTT] Topic a suscribir: CONTROL='" + String(MQTT_TOPIC_CONTROL) + "'");
   String clientId = MQTT_CLIENT_ID;  // Client ID simple para conexión MQTT
 
   // Last Will (mensaje que el broker publicará si el cliente se desconecta inesperadamente)
-  const char* willTopic = MQTT_TOPIC_STATUS;
+  const char* willTopic = MQTT_TOPIC_SYSTEM;
   const char* willMessage = "ESP32_AWG_OFFLINE";
   const uint8_t willQos = 1;
   const bool willRetain = true;
@@ -3081,9 +3245,9 @@ void connectMQTT() {
     }
     if (connected) {
       awgLog(LOG_INFO, "✅ CONEXIÓN MQTT EXITOSA!");
-      mqttClient.subscribe(MQTT_TOPIC_CONTROL);                         // Suscribirse al tópico de control
-      mqttClient.subscribe(MQTT_TOPIC_CONFIG);                          // Suscribirse al tópico de configuración
-      mqttClient.publish(MQTT_TOPIC_STATUS, "ESP32_AWG_ONLINE", true);  // Publicar estado online (retained)
+      bool subControl = mqttClient.subscribe(MQTT_TOPIC_CONTROL);                         // Suscribirse al tópico de control (incluye configuración)
+      awgLog(LOG_INFO, "📡 SUSCRIPCIÓN CONTROL: '" + String(MQTT_TOPIC_CONTROL) + "' - " + (subControl ? "EXITOSA" : "FALLIDA"));
+      mqttClient.publish(MQTT_TOPIC_SYSTEM, "ESP32_AWG_ONLINE", true);  // Publicar estado online (retained)
       awgLog(LOG_INFO, "📤 Estado online publicado");
       break;
     } else {
@@ -3193,6 +3357,18 @@ void setup() {
 
 void loop() {
   unsigned long now = millis();
+
+  // Verificar timeout de ensamblaje de configuración fragmentada
+  if (configAssembleTimeout > 0 && now > configAssembleTimeout) {
+    awgLog(LOG_WARNING, "⏰ Timeout de ensamblaje de configuración fragmentada - cancelando");
+    // Reset fragments
+    for (int i = 0; i < 4; i++) {
+      fragmentsReceived[i] = false;
+      configFragments[i] = "";
+    }
+    configAssembleTimeout = 0;
+  }
+
   if (digitalRead(CONFIG_BUTTON_PIN) == LOW) {
     if (now - configPortalTimeout > CONFIG_BUTTON_TIMEOUT) {
       configPortalTimeout = now;

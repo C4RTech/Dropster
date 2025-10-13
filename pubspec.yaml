@@ -49,6 +49,7 @@ dependencies:
   flutter_svg: ^2.0.9
   flutter_local_notifications: ^17.2.0
   connectivity_plus: ^6.0.3
+  android_alarm_manager_plus: ^4.0.0
 
 dev_dependencies:
   flutter_test:

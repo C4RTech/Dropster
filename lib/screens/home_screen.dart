@@ -5,6 +5,7 @@ import '../services/mqtt_hive.dart';
 import '../services/mqtt_service.dart';
 import '../widgets/dropster_animated_symbol.dart';
 import 'dart:async';
+import 'package:provider/provider.dart';
 
 /// Pantalla principal que muestra datos eléctricos en tiempo real,
 /// permite configurar valores nominales y detecta anomalías.
@@ -42,6 +43,9 @@ class _HomeScreenState extends State<HomeScreen>
   // Nivel del tanque real desde ESP32
   double tankLevel = 0.0;
 
+  // Subscription para errores de bomba
+  StreamSubscription<Map<String, dynamic>>? _pumpErrorSubscription;
+
   // Control del sistema AWG - ahora basado en estado real del ESP32
   int compressorState = 0; // 0 = OFF, 1 = ON - Estado real del ESP32
   int ventilatorState = 0; // 0 = OFF, 1 = ON
@@ -50,24 +54,6 @@ class _HomeScreenState extends State<HomeScreen>
   String operationMode =
       'MANUAL'; // 'MANUAL' o 'AUTO' - Iniciar en MANUAL para que los controles funcionen
   final MqttService _mqttService = MqttService();
-
-  /// Obtiene el valor de la batería desde el notifier global
-  double? get batteryValue {
-    final bat = globalNotifier.value['battery'];
-    if (bat is double) return bat;
-    if (bat is int) return bat.toDouble();
-    if (bat is String) return double.tryParse(bat);
-    return null;
-  }
-
-  /// Interpreta el estado textual de la batería según su valor
-  String get batteryStatus {
-    final value = batteryValue;
-    if (value == null) return "No disponible";
-    if (value >= 2.9) return "Cargada/Conectado";
-    if (value > 2.5) return "En buen estado";
-    return "Nivel bajo";
-  }
 
   /// Devuelve el tipo de fuente de datos ("BLE", "MQTT", o vacío)
   String get sourceType {
@@ -81,12 +67,14 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void initState() {
     super.initState();
+    print('[HOME DEBUG] initState iniciado');
     _loadSettings(); // Carga los valores nominales almacenados
     _initLatestData(); // Carga los últimos datos guardados
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
     );
+    print('[HOME DEBUG] AnimationController creado');
 
     // Función para procesar datos del notifier
     void _processNotifierData() {
@@ -127,8 +115,10 @@ class _HomeScreenState extends State<HomeScreen>
       }
 
       // Actualizar estado del ventilador del compresor desde MQTT
-      final newCompressorFanState = data['cfs'] ?? 0;
+      final newCompressorFanState = data['cfs'] ?? compressorFanState;
       if (newCompressorFanState != compressorFanState && mounted) {
+        print(
+            '[UI DEBUG] Estado del ventilador del compresor cambiando de $compressorFanState a $newCompressorFanState (modo: $operationMode)');
         compressorFanState = newCompressorFanState;
         print(
             '[UI DEBUG] Estado del ventilador del compresor actualizado a: $compressorFanState');
@@ -138,16 +128,21 @@ class _HomeScreenState extends State<HomeScreen>
       // Actualizar modo de operación desde MQTT
       final newMode = data['mode'] ?? operationMode;
       if (newMode != operationMode && mounted) {
+        print('[UI DEBUG] Modo cambiando de $operationMode a $newMode');
         operationMode = newMode;
         print('[UI DEBUG] Modo de operación actualizado a: $operationMode');
         _debouncedSetState();
       }
 
-      // Mostrar diálogo de error de bomba si se recibe el mensaje
+      // Mostrar diálogo de error de bomba si se recibe el mensaje del ESP32
       if (data.containsKey('pump_error') &&
-          data['pump_error'] == true &&
+          data['pump_error'] is Map &&
           mounted) {
-        _showPumpErrorDialog();
+        final pumpError = data['pump_error'] as Map<String, dynamic>;
+        final reason = pumpError['reason'] ?? 'unknown';
+        final message = pumpError['message'] ?? 'Error desconocido en la bomba';
+        print('[UI DEBUG] Recibido pump_error del ESP32: $reason - $message');
+        _showPumpErrorDialog(reason: reason, message: message);
       }
 
       // Obtener capacidad del tanque desde configuración
@@ -185,18 +180,29 @@ class _HomeScreenState extends State<HomeScreen>
 
     // Procesar datos iniciales inmediatamente
     _processNotifierData();
+
+    // Escuchar errores de bomba
+    _pumpErrorSubscription = SingletonMqttService()
+        .mqttClientService
+        .pumpErrorStream
+        .listen((errorData) {
+      if (mounted) {
+        _showPumpErrorSnackBar(errorData);
+      }
+    });
   }
 
   @override
   void dispose() {
     _controller.dispose();
     _debounceTimer?.cancel();
+    _pumpErrorSubscription?.cancel();
     super.dispose();
   }
 
   void _debouncedSetState() {
     _debounceTimer?.cancel();
-    _debounceTimer = Timer(const Duration(milliseconds: 200), () {
+    _debounceTimer = Timer(const Duration(milliseconds: 50), () {
       if (mounted) {
         setState(() {});
       }
@@ -205,37 +211,49 @@ class _HomeScreenState extends State<HomeScreen>
 
   /// Carga los valores nominales de voltaje y corriente desde Hive.
   Future<void> _loadSettings() async {
-    if (!Hive.isBoxOpen('settings')) {
-      await Hive.openBox('settings');
+    print('[HOME DEBUG] _loadSettings iniciado');
+    try {
+      if (!Hive.isBoxOpen('settings')) {
+        await Hive.openBox('settings');
+        print('[HOME DEBUG] Hive box settings abierto');
+      }
+      final settingsBox = Hive.box('settings');
+      nominalVoltage = settingsBox.get('nominalVoltage', defaultValue: 110.0);
+      nominalCurrent = settingsBox.get('nominalCurrent', defaultValue: 10.0);
+      voltageController.text = nominalVoltage.toStringAsFixed(1);
+      currentController.text = nominalCurrent.toStringAsFixed(1);
+      print(
+          '[HOME DEBUG] Valores nominales cargados: V=$nominalVoltage, I=$nominalCurrent');
+      setState(() {});
+      print('[HOME DEBUG] _loadSettings completado');
+    } catch (e) {
+      print('[HOME DEBUG] Error en _loadSettings: $e');
     }
-    final settingsBox = Hive.box('settings');
-    nominalVoltage = settingsBox.get('nominalVoltage', defaultValue: 110.0);
-    nominalCurrent = settingsBox.get('nominalCurrent', defaultValue: 10.0);
-    voltageController.text = nominalVoltage.toStringAsFixed(1);
-    currentController.text = nominalCurrent.toStringAsFixed(1);
-    setState(() {});
   }
 
   /// Inicializa Hive y carga los últimos datos registrados, si existen.
   Future<void> _initLatestData() async {
+    print('[HOME DEBUG] _initLatestData iniciado');
     try {
-      // Timeout de 5 segundos para evitar que se quede cargando indefinidamente
+      // Timeout reducido a 2 segundos para carga más rápida
       await MqttHiveService.initHive().timeout(
-        const Duration(seconds: 5),
+        const Duration(seconds: 2),
         onTimeout: () {
           print(
               '[INIT] Timeout inicializando Hive, continuando sin datos previos');
           return;
         },
       );
+      print('[HOME DEBUG] Hive inicializado en _initLatestData');
 
       final latest = await MqttHiveService.getLatestData().timeout(
-        const Duration(seconds: 3),
+        const Duration(seconds: 1),
         onTimeout: () {
           print('[INIT] Timeout cargando datos previos, continuando sin datos');
           return null;
         },
       );
+      print('[HOME DEBUG] Datos latest obtenidos: $latest');
 
       if (latest != null) {
         // Solo cargar si el notifier está vacío o si no tiene datos de energía
@@ -253,12 +271,14 @@ class _HomeScreenState extends State<HomeScreen>
     } catch (e) {
       print('[INIT] Error inicializando datos: $e');
     } finally {
-      // Asegurar que siempre se complete la carga inicial
+      // Asegurar que siempre se complete la carga inicial inmediatamente
       if (mounted) {
         setState(() {
           _firstLoadDone = true;
         });
-        print('[INIT] Carga inicial completada');
+        print('[INIT] Carga inicial completada, _firstLoadDone = true');
+      } else {
+        print('[HOME DEBUG] No mounted, no se setea _firstLoadDone');
       }
     }
   }
@@ -296,67 +316,6 @@ class _HomeScreenState extends State<HomeScreen>
           .toStringAsFixed(2); // Todos los demás valores con 2 decimales
     }
     return value.toString();
-  }
-
-  /// Tarjeta circular que muestra el estado de la batería
-  Widget buildBatteryCircleCard() {
-    // Solo muestra el estado textual
-    Color borderColor;
-    String status = batteryStatus;
-    if (status == "Cargada/Conectado")
-      borderColor = Colors.green;
-    else if (status == "En buen estado")
-      borderColor = Colors.amber;
-    else if (status == "Nivel bajo")
-      borderColor = Colors.red;
-    else
-      borderColor = Colors.grey;
-
-    return Container(
-      width: 100,
-      height: 100,
-      margin: const EdgeInsets.all(8.0),
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: const LinearGradient(
-          colors: [Colors.white, Color(0xFFE0E0E0)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        border: Border.all(color: borderColor, width: 4),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.shade400,
-            offset: const Offset(4, 4),
-            blurRadius: 6,
-            spreadRadius: 1,
-          ),
-          const BoxShadow(
-            color: Colors.white,
-            offset: Offset(-4, -4),
-            blurRadius: 6,
-            spreadRadius: 1,
-          ),
-        ],
-      ),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.battery_full, color: borderColor, size: 36),
-            const SizedBox(height: 4),
-            Text(
-              status,
-              style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                  color: borderColor),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   /// Tarjeta circular genérica para cualquier medición
@@ -408,6 +367,10 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _toggleSystem() async {
+    print(
+        '[UI DEBUG] Iniciando toggle del compresor. Estado actual: $compressorState');
+    final startTime = DateTime.now();
+
     // Actualizar estado local optimistamente
     final newState = compressorState == 1 ? 0 : 1;
     setState(() {
@@ -416,9 +379,18 @@ class _HomeScreenState extends State<HomeScreen>
 
     // Enviar comando opuesto al estado actual
     final command = newState == 1 ? "ON" : "OFF";
+    print('[UI DEBUG] Enviando comando: $command');
     try {
       await SingletonMqttService().mqttClientService.publishCommand(command);
+      final endTime = DateTime.now();
+      final duration = endTime.difference(startTime);
+      print(
+          '[UI DEBUG] Comando $command enviado exitosamente en ${duration.inMilliseconds}ms');
     } catch (e) {
+      final endTime = DateTime.now();
+      final duration = endTime.difference(startTime);
+      print(
+          '[UI DEBUG] Error enviando comando $command después de ${duration.inMilliseconds}ms: $e');
       // Revertir estado si falla
       setState(() {
         compressorState = 1 - newState;
@@ -428,6 +400,10 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _toggleVentilator() async {
+    print(
+        '[UI DEBUG] Iniciando toggle del ventilador. Estado actual: $ventilatorState');
+    final startTime = DateTime.now();
+
     // Actualizar estado local optimistamente
     final newState = ventilatorState == 1 ? 0 : 1;
     setState(() {
@@ -435,9 +411,18 @@ class _HomeScreenState extends State<HomeScreen>
     });
 
     final command = newState == 1 ? "ONV" : "OFFV";
+    print('[UI DEBUG] Enviando comando: $command');
     try {
       await SingletonMqttService().mqttClientService.publishCommand(command);
+      final endTime = DateTime.now();
+      final duration = endTime.difference(startTime);
+      print(
+          '[UI DEBUG] Comando $command enviado exitosamente en ${duration.inMilliseconds}ms');
     } catch (e) {
+      final endTime = DateTime.now();
+      final duration = endTime.difference(startTime);
+      print(
+          '[UI DEBUG] Error enviando comando $command después de ${duration.inMilliseconds}ms: $e');
       // Revertir estado si falla
       setState(() {
         ventilatorState = 1 - newState;
@@ -447,6 +432,9 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _togglePump() async {
+    print('[UI DEBUG] Iniciando toggle de la bomba. Estado actual: $pumpState');
+    final startTime = DateTime.now();
+
     // Actualizar estado local optimistamente
     final newState = pumpState == 1 ? 0 : 1;
     setState(() {
@@ -454,9 +442,18 @@ class _HomeScreenState extends State<HomeScreen>
     });
 
     final command = newState == 1 ? "ONB" : "OFFB";
+    print('[UI DEBUG] Enviando comando: $command');
     try {
       await SingletonMqttService().mqttClientService.publishCommand(command);
+      final endTime = DateTime.now();
+      final duration = endTime.difference(startTime);
+      print(
+          '[UI DEBUG] Comando $command enviado exitosamente en ${duration.inMilliseconds}ms');
     } catch (e) {
+      final endTime = DateTime.now();
+      final duration = endTime.difference(startTime);
+      print(
+          '[UI DEBUG] Error enviando comando $command después de ${duration.inMilliseconds}ms: $e');
       // Revertir estado si falla
       setState(() {
         pumpState = 1 - newState;
@@ -466,17 +463,34 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _toggleCompressorFan() async {
-    // Actualizar estado local optimistamente
+    print(
+        '[UI DEBUG] Iniciando toggle del ventilador del compresor. Estado actual: $compressorFanState, Modo: $operationMode');
+    final startTime = DateTime.now();
+
+    // Usar estado optimista como los otros botones para mejor UX
     final newState = compressorFanState == 1 ? 0 : 1;
     setState(() {
       compressorFanState = newState;
     });
 
     final command = newState == 1 ? "ONCF" : "OFFCF";
+    print(
+        '[UI DEBUG] Enviando comando: $command con estado optimista aplicado');
     try {
       await SingletonMqttService().mqttClientService.publishCommand(command);
+      final endTime = DateTime.now();
+      final duration = endTime.difference(startTime);
+      print(
+          '[UI DEBUG] Comando $command enviado exitosamente en ${duration.inMilliseconds}ms');
     } catch (e) {
-      // No revertir estado, mantener el cambio local
+      final endTime = DateTime.now();
+      final duration = endTime.difference(startTime);
+      print(
+          '[UI DEBUG] Error enviando comando $command después de ${duration.inMilliseconds}ms: $e');
+      // Revertir estado si falla
+      setState(() {
+        compressorFanState = 1 - newState;
+      });
       // Error ya se maneja en el servicio MQTT, no mostrar SnackBar
     }
   }
@@ -568,395 +582,420 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   Widget build(BuildContext context) {
-    final colorPrimary = Theme.of(context).colorScheme.primary;
-    final colorAccent = Theme.of(context).colorScheme.secondary;
-    final colorText = Theme.of(context).colorScheme.onBackground;
+    try {
+      print('[HOME DEBUG] build llamado, _firstLoadDone = $_firstLoadDone');
+      final colorPrimary = Theme.of(context).colorScheme.primary;
+      final colorAccent = Theme.of(context).colorScheme.secondary;
+      final colorText = Theme.of(context).colorScheme.onBackground;
+      print('[HOME DEBUG] Colores obtenidos del tema');
 
-    // Obtener el nivel del tanque usando capacidad configurada
-    double tankLevel = 0.0;
-    final settingsBox = Hive.box('settings');
-    final tankCapacity = settingsBox.get('tankCapacity', defaultValue: 1000.0);
+      // Obtener el nivel del tanque usando capacidad configurada
+      double tankLevel = 0.0;
+      try {
+        final settingsBox = Hive.box('settings');
+        final tankCapacity =
+            settingsBox.get('tankCapacity', defaultValue: 1000.0);
+        print('[HOME DEBUG] Tank capacity: $tankCapacity');
 
-    // Intentar obtener agua almacenada del ESP32
-    final aguaAlmacenada = globalNotifier.value['aguaAlmacenada'];
-    if (aguaAlmacenada != null && tankCapacity > 0) {
-      final aguaLitros = (aguaAlmacenada as num).toDouble();
-      tankLevel = (aguaLitros / tankCapacity).clamp(0.0, 1.0);
-    }
-
-    // Actualizar animación de la gota
-    _controller.value = tankLevel;
-
-    // Mostrar pantalla de carga solo por un tiempo limitado
-    if (!_firstLoadDone) {
-      // Forzar carga completada después de 10 segundos como respaldo
-      Future.delayed(const Duration(seconds: 10), () {
-        if (mounted && !_firstLoadDone) {
-          setState(() {
-            _firstLoadDone = true;
-          });
-          print('[INIT] Carga forzada completada después de timeout');
+        // Intentar obtener agua almacenada del ESP32
+        final aguaAlmacenada = globalNotifier.value['aguaAlmacenada'];
+        if (aguaAlmacenada != null && tankCapacity > 0) {
+          final aguaLitros = (aguaAlmacenada as num).toDouble();
+          tankLevel = (aguaLitros / tankCapacity).clamp(0.0, 1.0);
+          print('[HOME DEBUG] Tank level calculado: $tankLevel');
+        } else {
+          print(
+              '[HOME DEBUG] No se pudo calcular tank level, aguaAlmacenada: $aguaAlmacenada');
         }
-      });
+      } catch (e) {
+        print('[HOME DEBUG] Error calculando tank level: $e');
+        tankLevel = 0.0;
+      }
 
-      return Scaffold(
-        appBar: AppBar(
-          title: const Text('Dropster'),
-          backgroundColor: colorPrimary,
-          foregroundColor: Colors.white,
-        ),
-        body: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                colorPrimary.withOpacity(0.1),
-                colorAccent.withOpacity(0.05),
-              ],
-            ),
-          ),
-          child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Indicador de carga con colores de la paleta
-                Container(
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.9),
-                    borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      BoxShadow(
-                        color: colorPrimary.withOpacity(0.2),
-                        blurRadius: 20,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    children: [
-                      CircularProgressIndicator(
-                        color: colorAccent,
-                        strokeWidth: 3,
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        'Cargando datos...',
-                        style: TextStyle(
-                          color: colorPrimary,
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Si tarda demasiado, la app se cargará automáticamente',
-                        style: TextStyle(
-                          color: colorPrimary.withOpacity(0.7),
-                          fontSize: 12,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
+      // Actualizar animación de la gota
+      try {
+        _controller.value = tankLevel;
+      } catch (e) {
+        print('[HOME DEBUG] Error actualizando animación: $e');
+      }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            Image.asset('lib/assets/images/Dropster_simbolo.png', height: 32),
-            const SizedBox(width: 8),
-            const Text('Dropster'),
-          ],
-        ),
-        backgroundColor: colorPrimary,
-        foregroundColor: Colors.white,
-        actions: [
-          // Indicador de estado de conexión MQTT
-          ValueListenableBuilder<bool>(
-            valueListenable: connectionNotifier,
-            builder: (context, isConnected, child) {
-              return Container(
-                margin: const EdgeInsets.only(right: 16),
-                child: Row(
-                  children: [
-                    Icon(
-                      isConnected ? Icons.wifi : Icons.wifi_off,
-                      color: isConnected ? Colors.green : Colors.red,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      isConnected ? 'MQTT' : 'Sin conexión',
-                      style: TextStyle(
-                        color: isConnected ? Colors.green : Colors.red,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
+      // Mostrar pantalla de carga solo por un tiempo limitado
+      if (!_firstLoadDone) {
+        print('[HOME DEBUG] Mostrando pantalla de carga');
+        // Forzar carga completada después de 10 segundos como respaldo
+        Future.delayed(const Duration(seconds: 10), () {
+          if (mounted && !_firstLoadDone) {
+            setState(() {
+              _firstLoadDone = true;
+            });
+            print('[INIT] Carga forzada completada después de timeout');
+          }
+        });
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Dropster'),
+            backgroundColor: colorPrimary,
+            foregroundColor: Colors.white,
           ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // Gota animada en el centro sin fondo
-            Center(
+          body: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  colorPrimary.withOpacity(0.1),
+                  colorAccent.withOpacity(0.05),
+                ],
+              ),
+            ),
+            child: const Center(
               child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Símbolo de Dropster animado
-                  DropsterAnimatedSymbol(
-                    value: tankLevel,
-                    size: 140,
-                    primaryColor: colorAccent,
-                    secondaryColor: colorPrimary,
-                    animationDuration: const Duration(milliseconds: 800),
-                  ),
-                  const SizedBox(height: 16),
-                  // Título con porcentaje debajo
-                  Column(
-                    children: [
-                      Text(
-                        'Nivel del Tanque',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: colorText,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '${(tankLevel * 100).toStringAsFixed(1)}%',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: colorAccent,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ],
+                  // Indicador de carga con colores de la paleta
+                  CircularProgressIndicator(),
+                  SizedBox(height: 20),
+                  Text('Cargando datos...'),
+                  SizedBox(height: 8),
+                  Text(
+                    'Si tarda demasiado, la app se cargará automáticamente',
+                    textAlign: TextAlign.center,
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 24),
-            // Control de Modo de Operación
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 24),
-              child: Card(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                  side:
-                      BorderSide(color: colorAccent.withOpacity(0.3), width: 2),
-                ),
-                elevation: 8,
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
+          ),
+        );
+      }
+
+      print('[HOME DEBUG] Construyendo Scaffold principal');
+      return Scaffold(
+        appBar: AppBar(
+          title: Row(
+            children: [
+              Image.asset('lib/assets/images/Dropster_simbolo.png', height: 32),
+              const SizedBox(width: 8),
+              const Text('Dropster'),
+            ],
+          ),
+          backgroundColor: colorPrimary,
+          foregroundColor: Colors.white,
+          actions: [
+            // Indicador de estado de conexión MQTT
+            ValueListenableBuilder<bool>(
+              valueListenable: connectionNotifier,
+              builder: (context, isConnected, child) {
+                return Container(
+                  margin: const EdgeInsets.only(right: 16),
+                  child: Row(
                     children: [
-                      Row(
-                        children: [
-                          Icon(
-                            operationMode == 'AUTO'
-                                ? Icons.autorenew
-                                : Icons.touch_app,
-                            color: operationMode == 'AUTO'
-                                ? Colors.blue
-                                : colorAccent,
-                            size: 40,
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Text(
-                              'Modo de Operación',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: colorText,
-                              ),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: operationMode == 'AUTO'
-                                  ? Colors.blue.withOpacity(0.1)
-                                  : colorAccent.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: operationMode == 'AUTO'
-                                    ? Colors.blue
-                                    : colorAccent,
-                                width: 2,
-                              ),
-                            ),
-                            child: Text(
-                              operationMode,
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: operationMode == 'AUTO'
-                                    ? Colors.blue
-                                    : colorAccent,
-                              ),
-                            ),
-                          ),
-                        ],
+                      Icon(
+                        isConnected ? Icons.wifi : Icons.wifi_off,
+                        color: isConnected ? Colors.green : Colors.red,
+                        size: 20,
                       ),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: operationMode == 'AUTO'
-                                ? colorAccent
-                                : Colors.blue,
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(15),
-                            ),
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            elevation: 4,
-                          ),
-                          onPressed: _toggleMode,
-                          child: Text(
-                            'Cambiar a ${operationMode == 'AUTO' ? 'Manual' : 'Automático'}',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            // Controles de Relés
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 24),
-              child: Card(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                  side:
-                      BorderSide(color: colorAccent.withOpacity(0.3), width: 2),
-                ),
-                elevation: 8,
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
+                      const SizedBox(width: 4),
                       Text(
-                        'Control de Actuadores',
+                        isConnected ? 'MQTT' : 'Sin conexión',
                         style: TextStyle(
-                          fontSize: 18,
+                          color: isConnected ? Colors.green : Colors.red,
+                          fontSize: 12,
                           fontWeight: FontWeight.bold,
-                          color: colorText,
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                      // AWG (Compresor)
-                      _buildDeviceControl(
-                        'AWG (Compresor)',
-                        compressorState == 1,
-                        _toggleSystem,
-                        compressorState == 1 ? 'Apagar' : 'Encender',
-                        Icons.ac_unit,
-                      ),
-                      const SizedBox(height: 16),
-                      // Ventilador del Evaporador
-                      _buildDeviceControl(
-                        'Ventilador del Evaporador',
-                        ventilatorState == 1,
-                        _toggleVentilator,
-                        ventilatorState == 1 ? 'Apagar' : 'Encender',
-                        Icons.air,
-                      ),
-                      const SizedBox(height: 16),
-                      // Ventilador del Compresor
-                      _buildDeviceControl(
-                        'Ventilador del Compresor',
-                        compressorFanState == 1,
-                        _toggleCompressorFan,
-                        compressorFanState == 1 ? 'Apagar' : 'Encender',
-                        Icons.air,
-                      ),
-                      const SizedBox(height: 16),
-                      // Bomba de Agua
-                      _buildDeviceControl(
-                        'Bomba de Agua',
-                        pumpState == 1,
-                        _togglePump,
-                        pumpState == 1 ? 'Apagar' : 'Encender',
-                        Icons.water_drop,
                       ),
                     ],
                   ),
-                ),
-              ),
+                );
+              },
             ),
-            const SizedBox(height: 24),
-            // Variables principales del sistema AWG (simplificadas)
-            Wrap(
-              spacing: 16,
-              runSpacing: 16,
-              alignment: WrapAlignment.center,
-              children: [
-                // === DATOS PRINCIPALES ===
-                _miniDataCard(
-                    'Temperatura ambiente',
-                    getField(globalNotifier.value, 'temperaturaAmbiente'),
-                    '°C',
-                    Icons.thermostat,
-                    colorAccent,
-                    colorText),
-                _miniDataCard(
-                    'Humedad relativa',
-                    getField(globalNotifier.value, 'humedadRelativa'),
-                    '%',
-                    Icons.water,
-                    colorAccent,
-                    colorText),
-                _miniDataCard(
-                    'Humedad absoluta',
-                    getField(globalNotifier.value, 'humedadAbsoluta'),
-                    'g/m³',
-                    Icons.grain,
-                    colorAccent,
-                    colorText),
-                _miniDataCard(
-                    'Energía',
-                    getField(globalNotifier.value, 'energia'),
-                    'Wh',
-                    Icons.flash_on,
-                    colorAccent,
-                    colorText),
-              ],
-            ),
-            const SizedBox(height: 24),
           ],
         ),
-      ),
-    );
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Gota animada en el centro sin fondo
+              Center(
+                child: Column(
+                  children: [
+                    // Símbolo de Dropster animado
+                    DropsterAnimatedSymbol(
+                      value: tankLevel,
+                      size: 140,
+                      primaryColor: colorAccent,
+                      secondaryColor: colorPrimary,
+                      animationDuration: const Duration(milliseconds: 800),
+                    ),
+                    const SizedBox(height: 16),
+                    // Título con porcentaje debajo
+                    Column(
+                      children: [
+                        Text(
+                          'Nivel del Tanque',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: colorText,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          '${(tankLevel * 100).toStringAsFixed(1)}%',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: colorAccent,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              // Control de Modo de Operación
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 24),
+                child: Card(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    side: BorderSide(
+                        color: colorAccent.withOpacity(0.3), width: 2),
+                  ),
+                  elevation: 8,
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              operationMode == 'AUTO'
+                                  ? Icons.autorenew
+                                  : Icons.touch_app,
+                              color: operationMode == 'AUTO'
+                                  ? Colors.blue
+                                  : colorAccent,
+                              size: 40,
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Text(
+                                'Modo de Operación',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: colorText,
+                                ),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: operationMode == 'AUTO'
+                                    ? Colors.blue.withOpacity(0.1)
+                                    : colorAccent.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: operationMode == 'AUTO'
+                                      ? Colors.blue
+                                      : colorAccent,
+                                  width: 2,
+                                ),
+                              ),
+                              child: Text(
+                                operationMode,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: operationMode == 'AUTO'
+                                      ? Colors.blue
+                                      : colorAccent,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: operationMode == 'AUTO'
+                                  ? colorAccent
+                                  : Colors.blue,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(15),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              elevation: 4,
+                            ),
+                            onPressed: _toggleMode,
+                            child: Text(
+                              'Cambiar a ${operationMode == 'AUTO' ? 'Manual' : 'Automático'}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Controles de Relés
+              Container(
+                margin: const EdgeInsets.symmetric(horizontal: 24),
+                child: Card(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    side: BorderSide(
+                        color: colorAccent.withOpacity(0.3), width: 2),
+                  ),
+                  elevation: 8,
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Control de Actuadores',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: colorText,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        // AWG (Compresor)
+                        _buildDeviceControl(
+                          'AWG (Compresor)',
+                          compressorState == 1,
+                          _toggleSystem,
+                          compressorState == 1 ? 'Apagar' : 'Encender',
+                          Icons.ac_unit,
+                        ),
+                        const SizedBox(height: 16),
+                        // Ventilador del Evaporador
+                        _buildDeviceControl(
+                          'Ventilador del Evaporador',
+                          ventilatorState == 1,
+                          _toggleVentilator,
+                          ventilatorState == 1 ? 'Apagar' : 'Encender',
+                          Icons.air,
+                        ),
+                        const SizedBox(height: 16),
+                        // Ventilador del Compresor
+                        _buildDeviceControl(
+                          'Ventilador del Compresor',
+                          compressorFanState == 1,
+                          _toggleCompressorFan,
+                          compressorFanState == 1 ? 'Apagar' : 'Encender',
+                          Icons.air,
+                        ),
+                        const SizedBox(height: 16),
+                        // Bomba de Agua
+                        _buildDeviceControl(
+                          'Bomba de Agua',
+                          pumpState == 1,
+                          _togglePump,
+                          pumpState == 1 ? 'Apagar' : 'Encender',
+                          Icons.water_drop,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              // Variables principales del sistema AWG (simplificadas)
+              Wrap(
+                spacing: 16,
+                runSpacing: 16,
+                alignment: WrapAlignment.center,
+                children: [
+                  // === DATOS PRINCIPALES ===
+                  _miniDataCard(
+                      'Temperatura ambiente',
+                      getField(globalNotifier.value, 'temperaturaAmbiente'),
+                      '°C',
+                      Icons.thermostat,
+                      colorAccent,
+                      colorText),
+                  _miniDataCard(
+                      'Humedad relativa',
+                      getField(globalNotifier.value, 'humedadRelativa'),
+                      '%',
+                      Icons.water,
+                      colorAccent,
+                      colorText),
+                  _miniDataCard(
+                      'Humedad absoluta',
+                      getField(globalNotifier.value, 'humedadAbsoluta'),
+                      'g/m³',
+                      Icons.grain,
+                      colorAccent,
+                      colorText),
+                  _miniDataCard(
+                      'Energía',
+                      getField(globalNotifier.value, 'energia'),
+                      'Wh',
+                      Icons.flash_on,
+                      colorAccent,
+                      colorText),
+                ],
+              ),
+              const SizedBox(height: 24),
+            ],
+          ),
+        ),
+      );
+    } catch (e, stackTrace) {
+      print('[HOME DEBUG] Error en build: $e');
+      print('[HOME DEBUG] StackTrace: $stackTrace');
+      // Retornar un Scaffold básico en caso de error para evitar pantalla gris
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Dropster - Error'),
+          backgroundColor: Colors.red,
+        ),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error, color: Colors.red, size: 64),
+              const SizedBox(height: 16),
+              const Text(
+                'Error al cargar la pantalla',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Error: $e',
+                style: const TextStyle(color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {});
+                },
+                child: const Text('Reintentar'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
   }
 
   Widget _miniDataCard(String title, String value, String unit, IconData icon,
@@ -998,37 +1037,73 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  void _showPumpErrorDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Error'),
-        content: const Text(
-            'No se pudo activar la bomba de agua por seguridad nivel del tanque muy bajo para poder activarla.'),
-        actions: [
-          Builder(
-            builder: (dialogContext) {
-              final colorPrimary = Theme.of(dialogContext).colorScheme.primary;
-              return ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: colorPrimary,
-                  foregroundColor: Colors.white,
-                  textStyle: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(30),
-                  ),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                ),
-                child: const Text('Aceptar'),
-              );
-            },
-          ),
-        ],
+  void _showPumpErrorDialog(
+      {String reason = 'unknown',
+      String message = 'Error desconocido en la bomba'}) {
+    String displayMessage;
+    switch (reason) {
+      case 'low_water':
+        displayMessage =
+            'No se puede activar la bomba por seguridad (nivel de agua insuficiente)';
+        break;
+      case 'low_voltage':
+        displayMessage =
+            'No se puede activar la bomba por seguridad (voltaje insuficiente)';
+        break;
+      default:
+        displayMessage = message;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          displayMessage,
+          style: const TextStyle(color: Color(0xFF155263)),
+        ),
+        backgroundColor: Colors.white,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  void _showPumpLowWaterDialog() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+            'No se puede activar la bomba por seguridad (nivel de agua muy bajo)',
+            style: TextStyle(color: Color(0xFF155263))),
+        backgroundColor: Colors.white,
+      ),
+    );
+  }
+
+  void _showPumpErrorSnackBar(Map<String, dynamic> errorData) {
+    print('[HOME DEBUG] Mostrando SnackBar de error de bomba: $errorData');
+    final reason = errorData['reason'] ?? 'unknown';
+    final message = errorData['message'] ?? 'Error desconocido en la bomba';
+
+    String displayMessage;
+    switch (reason) {
+      case 'low_water':
+        displayMessage =
+            'No se puede activar la bomba por seguridad (nivel de agua insuficiente)';
+        break;
+      case 'low_voltage':
+        displayMessage =
+            'No se puede activar la bomba por seguridad (voltaje insuficiente)';
+        break;
+      default:
+        displayMessage = message;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          displayMessage,
+          style: const TextStyle(color: Color(0xFF155263)),
+        ),
+        backgroundColor: Colors.white,
+        duration: const Duration(seconds: 4),
       ),
     );
   }

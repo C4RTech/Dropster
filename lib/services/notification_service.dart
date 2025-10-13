@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -22,7 +23,6 @@ class NotificationService {
   // Umbrales para alertas
   static const double TEMP_HIGH_THRESHOLD = 35.0; // °C
   static const double TANK_FULL_THRESHOLD = 95.0; // %
-  static const double BATTERY_LOW_THRESHOLD = 2.5; // V
 
   // Método para mostrar notificaciones usando SnackBar
   static void showNotification(
@@ -245,18 +245,21 @@ class NotificationService {
 
   /// Procesar datos MQTT y detectar anomalías
   Future<void> processSensorData(Map<String, dynamic> sensorData) async {
-    debugPrint('[NOTIFICATION DEBUG] 🔍 Procesando datos de sensores para notificaciones...');
-    
+    debugPrint(
+        '[NOTIFICATION DEBUG] 🔍 Procesando datos de sensores para notificaciones...');
+
     final settingsBox = await Hive.openBox('settings');
     final showNotifications =
         settingsBox.get('showNotifications', defaultValue: true);
 
     if (!showNotifications) {
-      debugPrint('[NOTIFICATION DEBUG] ⚠️ Notificaciones deshabilitadas en configuración');
+      debugPrint(
+          '[NOTIFICATION DEBUG] ⚠️ Notificaciones deshabilitadas en configuración');
       return;
     }
-    
-    debugPrint('[NOTIFICATION DEBUG] ✅ Notificaciones habilitadas, verificando umbrales...');
+
+    debugPrint(
+        '[NOTIFICATION DEBUG] ✅ Notificaciones habilitadas, verificando umbrales...');
 
     // Obtener umbrales configurables
     final tankFullEnabled =
@@ -293,8 +296,9 @@ class NotificationService {
 
         // Calcular porcentaje de llenado
         final porcentajeLlenado = (aguaLitros / capacidadLitros) * 100.0;
-        
-        debugPrint('[NOTIFICATION DEBUG] 💧 Verificando tanque: ${aguaLitros}L/${capacidadLitros}L (${porcentajeLlenado.toStringAsFixed(1)}%) - umbral: ${tankFullThreshold}%');
+
+        debugPrint(
+            '[NOTIFICATION DEBUG] 💧 Verificando tanque: ${aguaLitros}L/${capacidadLitros}L (${porcentajeLlenado.toStringAsFixed(1)}%) - umbral: ${tankFullThreshold}%');
 
         // Mostrar alerta si supera el umbral configurado
         if (porcentajeLlenado >= tankFullThreshold) {
@@ -308,7 +312,8 @@ class NotificationService {
     // Verificar voltaje bajo usando umbral configurable
     if (voltageLowEnabled) {
       final voltaje = sensorData['voltaje'];
-      debugPrint('[NOTIFICATION DEBUG] ⚡ Verificando voltaje: ${voltaje}V (umbral: ${voltageLowThreshold}V)');
+      debugPrint(
+          '[NOTIFICATION DEBUG] ⚡ Verificando voltaje: ${voltaje}V (umbral: ${voltageLowThreshold}V)');
       if (voltaje != null && voltaje is num && voltaje < voltageLowThreshold) {
         debugPrint('[NOTIFICATION DEBUG] 🚨 ALERTA: Voltaje bajo detectado!');
         await _showVoltageLowAlert(voltaje.toDouble(), voltageLowThreshold);
@@ -318,18 +323,19 @@ class NotificationService {
     // Verificar humedad baja usando umbral configurable
     if (humidityLowEnabled) {
       final humedad = sensorData['humedadRelativa'];
-      debugPrint('[NOTIFICATION DEBUG] 💨 Verificando humedad: ${humedad}% (umbral: ${humidityLowThreshold}%)');
+      debugPrint(
+          '[NOTIFICATION DEBUG] 💨 Verificando humedad: ${humedad}% (umbral: ${humidityLowThreshold}%)');
       if (humedad != null && humedad is num && humedad < humidityLowThreshold) {
         debugPrint('[NOTIFICATION DEBUG] 🚨 ALERTA: Humedad baja detectada!');
         await _showHumidityLowAlert(humedad.toDouble(), humidityLowThreshold);
       }
     }
 
-    // Verificar batería baja (mantiene umbral fijo)
-    final bateria = sensorData['bateria'];
-    if (bateria != null && bateria is num && bateria < BATTERY_LOW_THRESHOLD) {
-      await _showBatteryLowAlert(bateria.toDouble());
-    }
+    // Verificar batería baja - DESHABILITADO: la máquina no tiene batería
+    // final bateria = sensorData['bateria'];
+    // if (bateria != null && bateria is num && bateria < BATTERY_LOW_THRESHOLD) {
+    //   await _showBatteryLowAlert(bateria.toDouble());
+    // }
   }
 
   /// Mostrar alerta de temperatura alta
@@ -375,26 +381,6 @@ class NotificationService {
     );
   }
 
-  /// Mostrar alerta de batería baja
-  Future<void> _showBatteryLowAlert(double batteryVoltage) async {
-    const title = '🔋 ¡BATERÍA BAJA!';
-    final body =
-        'Voltaje de batería: ${batteryVoltage.toStringAsFixed(2)}V\nConsidere cambiar la batería pronto.';
-
-    await showPushNotification(
-      title: title,
-      body: body,
-      payload: 'battery_low',
-    );
-
-    // Guardar en anomalías
-    await saveNotification(
-      'Batería Baja',
-      'Voltaje de batería: ${batteryVoltage.toStringAsFixed(2)}V',
-      'battery_low',
-    );
-  }
-
   /// Mostrar alerta de voltaje bajo
   Future<void> _showVoltageLowAlert(double voltage, double threshold) async {
     const title = '⚡ ¡VOLTAJE BAJO!';
@@ -434,6 +420,78 @@ class NotificationService {
       'Humedad Baja Detectada',
       'Humedad: ${humidity.toStringAsFixed(1)}% (Umbral: ${threshold.toStringAsFixed(1)}%)',
       'humidity_low',
+    );
+  }
+
+  /// Procesar datos de alertas del ESP32
+  Future<void> processAlertData(String payload) async {
+    try {
+      final alertData = jsonDecode(payload);
+      if (alertData is Map<String, dynamic>) {
+        // Procesar alertas específicas del ESP32
+        final alertType = alertData['type'];
+        final message = alertData['message'] ?? 'Alerta del sistema';
+
+        // Determinar título específico basado en el tipo de alerta
+        String title;
+        String notificationTitle;
+        switch (alertType) {
+          case 'compressor_temp_high':
+            title = '🔥 ¡TEMPERATURA COMPRESOR ALTA!';
+            notificationTitle = 'Temperatura del Compresor Alta';
+            break;
+          case 'tank_full':
+            title = '💧 ¡TANQUE LLENO!';
+            notificationTitle = 'Tanque Lleno';
+            break;
+          case 'voltage_low':
+            title = '⚡ ¡VOLTAJE BAJO!';
+            notificationTitle = 'Voltaje Bajo Detectado';
+            break;
+          case 'humidity_low':
+            title = '💨 ¡HUMEDAD BAJA!';
+            notificationTitle = 'Humedad Baja Detectada';
+            break;
+          // pump_error removido - solo muestra diálogo en UI, no notificación push
+          default:
+            title = '🚨 ALERTA DEL SISTEMA';
+            notificationTitle = 'Alerta del Sistema';
+        }
+
+        await showPushNotification(
+          title: title,
+          body: message,
+          payload: alertType,
+        );
+
+        // Guardar en notificaciones con título específico
+        await saveNotification(
+          notificationTitle,
+          message,
+          alertType ?? 'system_alert',
+        );
+      }
+    } catch (e) {
+      debugPrint('[NOTIFICATION DEBUG] Error procesando datos de alerta: $e');
+    }
+  }
+
+  /// Mostrar notificación de reporte diario
+  Future<void> showDailyReportNotification({
+    required String title,
+    required String body,
+  }) async {
+    await showPushNotification(
+      title: title,
+      body: body,
+      payload: 'daily_report',
+    );
+
+    // Guardar en notificaciones
+    await saveNotification(
+      'Reporte Diario',
+      body,
+      'daily_report',
     );
   }
 

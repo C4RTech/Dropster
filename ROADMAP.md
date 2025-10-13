@@ -8,7 +8,7 @@ Dropster evoluciona de un proyecto académico a una solución IoT completa para 
 
 ### ✅ **Fase 1: MVP Académico (Completado - v1.0.0)**
 **Estado**: ✅ Implementado  
-**Fecha**: Septiembre 2025  
+**Fecha**: Octubre 2025  
 **Objetivo**: Validación técnica y funcional del concepto AWG
 
 #### Características Implementadas:

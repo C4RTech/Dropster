@@ -8,21 +8,21 @@
 #define MQTT_PASS ""
 #define MQTT_CLIENT_ID "ESP32_Dropster_AWG"
 
-// Tópicos (deben coincidir con Dropster App)
-#define MQTT_TOPIC_DATA "dropster/data"
-#define MQTT_TOPIC_STATUS "dropster/status"
-#define MQTT_TOPIC_CONTROL "dropster/control"
-#define MQTT_TOPIC_CONFIG "dropster/config"
-#define MQTT_TOPIC_ALERTS "dropster/alerts"
+// Tópicos organizados (deben coincidir con Dropster App)
+#define MQTT_TOPIC_DATA "dropster/data"           // Datos de sensores (JSON, QoS 0)
+#define MQTT_TOPIC_STATUS "dropster/status"       // Estados actuadores + modo (JSON, QoS 1, retained)
+#define MQTT_TOPIC_CONTROL "dropster/control"     // Comandos app → ESP32 (control + configuración)
+#define MQTT_TOPIC_ALERTS "dropster/alerts"       // Alertas específicas
+#define MQTT_TOPIC_ERRORS "dropster/errors"       // Mensajes de error
+#define MQTT_TOPIC_SYSTEM "dropster/system"       // Estado general del sistema
 
 // Intervalos de operación (ms)
 #define SENSOR_READ_INTERVAL 3000
 #define UART_TRANSMIT_INTERVAL 3000
-#define MQTT_TRANSMIT_INTERVAL 10000
+#define MQTT_TRANSMIT_INTERVAL 3000
 #define HEARTBEAT_INTERVAL 60000
 #define WIFI_CHECK_INTERVAL 10000
 #define MQTT_RECONNECT_DELAY 5000
-#define WIFI_RECONNECT_DELAY 5000
 #define CONFIG_BUTTON_TIMEOUT 5000
 
 // CONFIGURACIÓN DEL SISTEMA DE TANQUE
@@ -70,18 +70,14 @@
 
 // Buffer sizes
 #define TX_BUFFER_SIZE 300
-#define MQTT_BUFFER_SIZE 400
+#define MQTT_BUFFER_SIZE 1024  // Aumentado para mensajes JSON largos
 #define LOG_BUFFER_SIZE 10
-#define PARAM_BUFFER_SIZE 40
 
 // Configuración de comandos y concurrencia
 #define COMMAND_TIMEOUT 5000               // Timeout para comandos críticos (ms)
 #define COMMAND_DEBOUNCE 1000              // Debounce entre comandos (ms)
 
-// Límites de seguridad para temperaturas
-#define MAX_SAFE_TEMP 50.0f                // Temperatura máxima segura (°C)
-#define MIN_SAFE_TEMP -10.0f               // Temperatura mínima segura (°C)
-#define MAX_SAFE_HUMIDITY 95.0f            // Humedad máxima segura (%)
+// Límites de seguridad
 #define MIN_WATER_LEVEL 5.0f               // Nivel mínimo de agua para bombear (%)
 #define MAX_COMPRESSOR_TEMP 100.0f         // Temperatura máxima segura del compresor (°C)
 

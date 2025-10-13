@@ -3,7 +3,6 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:dropster/screens/home_screen.dart';
 import 'package:dropster/screens/connectivity_screen.dart';
 import 'package:dropster/screens/graph_screen.dart';
-import 'package:dropster/screens/notifications_screen.dart';
 import 'package:dropster/screens/monitor_screen.dart';
 import 'package:dropster/screens/settings_screen.dart';
 import 'package:dropster/screens/info_screen.dart';
@@ -163,13 +162,15 @@ class _LoaderScreenState extends State<LoaderScreen>
         await DailyReportService().initialize();
         // Cargar configuración de reportes diarios
         final settingsBox = await Hive.openBox('settings');
-        final dailyReportEnabled = settingsBox.get('dailyReportEnabled', defaultValue: false);
+        final dailyReportEnabled =
+            settingsBox.get('dailyReportEnabled', defaultValue: false);
         if (dailyReportEnabled) {
           final hour = settingsBox.get('dailyReportHour', defaultValue: 20);
           final minute = settingsBox.get('dailyReportMinute', defaultValue: 0);
           final reportTime = TimeOfDay(hour: hour, minute: minute);
           await DailyReportService().scheduleDailyReport(reportTime, true);
-          print('[APP INIT] Reporte diario programado para ${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}');
+          print(
+              '[APP INIT] Reporte diario programado para ${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}');
         }
         print('[APP INIT] Servicio de reportes diarios inicializado');
       } catch (e) {
@@ -381,7 +382,6 @@ class _MainScreenState extends State<MainScreen> {
     MonitorScreen(),
     ConnectivityScreen(),
     GraphScreen(),
-    NotificationsScreen(),
     SettingsScreen(),
     InfoScreen(),
   ];
@@ -473,10 +473,6 @@ class _MainScreenState extends State<MainScreen> {
             BottomNavigationBarItem(
               icon: Icon(Icons.show_chart),
               label: 'Gráficas',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.notifications),
-              label: 'Notificaciones',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.settings),

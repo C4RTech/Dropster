@@ -94,6 +94,28 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
     }
   }
 
+  /// Verifica si tanto la app como el ESP32 están conectados al broker
+  bool _isFullyConnected() {
+    // La app debe estar conectada al broker
+    if (!SingletonMqttService().mqttConnected) {
+      return false;
+    }
+
+    // El ESP32 debe haber enviado datos recientemente (últimos 30 segundos)
+    final stats = SingletonMqttService().mqttClientService.getConnectionStats();
+    final lastMessageTime = stats['lastMessageTime'];
+    if (lastMessageTime == null) {
+      return false;
+    }
+
+    final lastMessage = DateTime.parse(lastMessageTime);
+    final now = DateTime.now();
+    final timeSinceLastMessage = now.difference(lastMessage).inSeconds;
+
+    // Consideramos que el ESP32 está conectado si envió datos en los últimos 30 segundos
+    return timeSinceLastMessage <= 30;
+  }
+
   Widget _buildNetworkInfo(String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -150,18 +172,28 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
           ValueListenableBuilder<bool>(
             valueListenable: connectionNotifier,
             builder: (context, isConnected, child) {
+              final fullyConnected = _isFullyConnected();
               return Container(
                 width: double.infinity,
-                color: isConnected ? Color(0xFF2E7D32) : Color(0xFF0C434A),
+                color: fullyConnected
+                    ? Color(0xFF2E7D32)
+                    : (isConnected ? Color(0xFFFFA000) : Color(0xFF0C434A)),
                 padding:
                     const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                 child: Row(
                   children: [
-                    Icon(isConnected ? Icons.wifi : Icons.wifi_off,
+                    Icon(
+                        fullyConnected
+                            ? Icons.wifi
+                            : (isConnected ? Icons.wifi_off : Icons.wifi_off),
                         color: colorAccent),
                     SizedBox(width: 8),
                     Text(
-                      isConnected ? 'Conectado a MQTT' : 'Sin conexión',
+                      fullyConnected
+                          ? 'Conectado (App + ESP32)'
+                          : (isConnected
+                              ? 'Conectado (Solo App)'
+                              : 'Sin conexión'),
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -283,11 +315,6 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
                                     ),
                                     SizedBox(height: 12),
                                     _buildNetworkInfo(
-                                        'IP del AWG',
-                                        SingletonMqttService().mqttConnected
-                                            ? 'Conectado'
-                                            : 'No disponible'),
-                                    _buildNetworkInfo(
                                         'Broker MQTT', savedMqttBroker),
                                     _buildNetworkInfo('Puerto MQTT',
                                         savedMqttPort.toString()),
@@ -295,9 +322,12 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
                                         'Tópico MQTT', savedMqttTopic),
                                     _buildNetworkInfo(
                                         'Estado',
-                                        SingletonMqttService().mqttConnected
-                                            ? 'Conectado'
-                                            : 'Desconectado'),
+                                        _isFullyConnected()
+                                            ? 'Conectado (App + ESP32)'
+                                            : SingletonMqttService()
+                                                    .mqttConnected
+                                                ? 'Conectado (Solo App)'
+                                                : 'Desconectado'),
                                   ],
                                 ),
                               ),

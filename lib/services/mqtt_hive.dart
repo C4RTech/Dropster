@@ -83,11 +83,9 @@ class MqttHiveService {
         'aguaAlmacenada': jsonData['w'] ?? 0.0, // w = agua almacenada
 
         // === SENSORES ADICIONALES ===
-        'temperaturaEvaporador':
-            jsonData['te'] ?? 0.0, // te = temperatura evaporador
-        'humedadEvaporador': jsonData['he'] ?? 0.0, // he = humedad evaporador
-        'temperaturaCompresor':
-            jsonData['tc'] ?? 0.0, // tc = temperatura compresor
+        'sht1Temp': jsonData['te'] ?? 0.0, // te = temperatura evaporador
+        'sht1Hum': jsonData['he'] ?? 0.0, // he = humedad evaporador
+        'compressorTemp': jsonData['tc'] ?? 0.0, // tc = temperatura compresor
 
         // === CÁLCULOS DERIVADOS ===
         'puntoRocio': jsonData['dp'] ?? 0.0, // dp = punto de rocío
@@ -185,7 +183,6 @@ class MqttHiveService {
       'phase_c': getDouble(25),
       'totalActiveFundPower': getDouble(26),
       'totalActiveHarPower': getDouble(27),
-      'battery': getDouble(28),
       'source': source,
       'timestamp': DateTime.tryParse(
             '${dateParts[0].padLeft(4, '0')}-${dateParts[1].padLeft(2, '0')}-${dateParts[2].padLeft(2, '0')} '

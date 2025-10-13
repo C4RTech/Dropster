@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
+import 'dart:async';
 import '../services/mqtt_hive.dart';
 import '../services/enhanced_daily_report_service.dart';
 import '../services/singleton_mqtt_service.dart';
@@ -100,6 +101,115 @@ class _SettingsScreenState extends State<SettingsScreen> {
           data['max_compressor_temp'] != null) {
         maxCompressorTemp = (data['max_compressor_temp'] as num).toDouble();
       }
+
+      // Procesar configuración sincronizada desde ESP32
+      // El ESP32 envía el backup como un JSON completo con type="config_backup"
+      if (data.containsKey('type') && data['type'] == 'config_backup') {
+        try {
+          debugPrint(
+              '[SYNC] 📥 Recibida configuración desde ESP32: ${data.keys}');
+
+          // Sincronizar configuración MQTT
+          if (data.containsKey('mqtt')) {
+            final mqtt = data['mqtt'] as Map<String, dynamic>;
+            if (mqtt.containsKey('broker'))
+              mqttBroker = mqtt['broker'] as String;
+            if (mqtt.containsKey('port'))
+              mqttPort = (mqtt['port'] as num).toInt();
+          }
+
+          // Sincronizar configuración de control
+          if (data.containsKey('control')) {
+            final control = data['control'] as Map<String, dynamic>;
+            if (control.containsKey('deadband'))
+              controlDeadband = (control['deadband'] as num).toDouble();
+            if (control.containsKey('minOff'))
+              controlMinOff = (control['minOff'] as num).toInt();
+            if (control.containsKey('maxOn'))
+              controlMaxOn = (control['maxOn'] as num).toInt();
+            if (control.containsKey('sampling'))
+              controlSampling = (control['sampling'] as num).toInt();
+            if (control.containsKey('alpha'))
+              controlAlpha = (control['alpha'] as num).toDouble();
+          }
+
+          // Sincronizar configuración de alertas
+          if (data.containsKey('alerts')) {
+            final alerts = data['alerts'] as Map<String, dynamic>;
+            if (alerts.containsKey('tankFullEnabled'))
+              tankFullEnabled = alerts['tankFullEnabled'] as bool;
+            if (alerts.containsKey('tankFullThreshold'))
+              tankFullThreshold =
+                  (alerts['tankFullThreshold'] as num).toDouble();
+            if (alerts.containsKey('voltageLowEnabled'))
+              voltageLowEnabled = alerts['voltageLowEnabled'] as bool;
+            if (alerts.containsKey('voltageLowThreshold'))
+              voltageLowThreshold =
+                  (alerts['voltageLowThreshold'] as num).toDouble();
+            if (alerts.containsKey('humidityLowEnabled'))
+              humidityLowEnabled = alerts['humidityLowEnabled'] as bool;
+            if (alerts.containsKey('humidityLowThreshold'))
+              humidityLowThreshold =
+                  (alerts['humidityLowThreshold'] as num).toDouble();
+          }
+
+          // Sincronizar configuración del tanque
+          if (data.containsKey('tank')) {
+            final tank = data['tank'] as Map<String, dynamic>;
+            if (tank.containsKey('capacity'))
+              tankCapacity = (tank['capacity'] as num).toDouble();
+            if (tank.containsKey('isCalibrated'))
+              isCalibrated = tank['isCalibrated'] as bool;
+            if (tank.containsKey('offset'))
+              ultrasonicOffset = (tank['offset'] as num).toDouble();
+
+            // Sincronizar puntos de calibración
+            if (tank.containsKey('calibrationPoints')) {
+              final points = tank['calibrationPoints'] as List<dynamic>;
+              calibrationPoints = points.map((point) {
+                final p = point as Map<String, dynamic>;
+                return {
+                  'distance': (p['distance'] as num).toDouble(),
+                  'liters': (p['liters'] as num).toDouble(),
+                };
+              }).toList();
+            }
+          }
+
+          // Actualizar controladores de texto
+          voltageController.text = nominalVoltage.toStringAsFixed(1);
+          currentController.text = nominalCurrent.toStringAsFixed(1);
+          tankCapacityController.text = tankCapacity.toStringAsFixed(0);
+          ultrasonicOffsetController.text = ultrasonicOffset.toStringAsFixed(1);
+
+          debugPrint('[SYNC] ✅ Configuración sincronizada desde ESP32');
+
+          // Mostrar snackbar de confirmación
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  '✅ Configuración sincronizada desde ESP32',
+                  style: TextStyle(
+                      color: Colors.white, fontWeight: FontWeight.w500),
+                ),
+                backgroundColor: Colors.green.shade600,
+                duration: Duration(seconds: 3),
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            );
+          }
+
+          // Limpiar el backup del notifier para evitar re-procesamiento
+          SingletonMqttService().notifier.value = {...data}..remove('type');
+        } catch (e) {
+          debugPrint(
+              '[SYNC] ❌ Error procesando configuración sincronizada: $e');
+        }
+      }
     });
   }
 
@@ -189,6 +299,100 @@ class _SettingsScreenState extends State<SettingsScreen> {
     oldShowNotifications = showNotifications;
   }
 
+  Future<void> _syncConfigFromESP32() async {
+    if (!mounted) return;
+
+    // Mostrar indicador de carga
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return const AlertDialog(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text(
+                'Sincronizando configuración...',
+                style: TextStyle(fontSize: 16),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    try {
+      debugPrint('[SYNC] 🚀 Solicitando configuración desde ESP32...');
+
+      // Enviar comando BACKUP_CONFIG al ESP32
+      await SingletonMqttService()
+          .mqttClientService
+          .publishCommand('BACKUP_CONFIG');
+
+      debugPrint(
+          '[SYNC] ✅ Comando BACKUP_CONFIG enviado, esperando respuesta...');
+
+      // Esperar un poco para que llegue la respuesta
+      await Future.delayed(const Duration(seconds: 3));
+
+      // Cerrar diálogo de carga
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.of(context).pop();
+      }
+
+      // Mostrar mensaje de éxito
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (BuildContext successContext) {
+            return AlertDialog(
+              title: const Text('✅ Sincronización completada'),
+              content: const Text(
+                  'La configuración ha sido sincronizada desde el ESP32. Los valores actuales del dispositivo se han cargado en la interfaz.'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(successContext).pop(),
+                  child: const Text('Aceptar'),
+                ),
+              ],
+            );
+          },
+        );
+      }
+
+      debugPrint('[SYNC] ✅ Sincronización completada');
+    } catch (e) {
+      debugPrint('[SYNC] ❌ Error en sincronización: $e');
+
+      // Cerrar diálogo de carga
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.of(context).pop();
+      }
+
+      // Mostrar error
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (BuildContext errorContext) {
+            return AlertDialog(
+              title: const Text('❌ Error de sincronización'),
+              content: Text('No se pudo sincronizar la configuración: $e'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(errorContext).pop(),
+                  child: const Text('Aceptar'),
+                ),
+              ],
+            );
+          },
+        );
+      }
+    }
+  }
+
   Future<void> _saveSettings() async {
     final settingsBox = Hive.box('settings');
 
@@ -215,6 +419,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
         );
       },
     );
+
+    // Crear un Completer para esperar la confirmación del ESP32
+    final completer = Completer<bool>();
+
+    // Listener temporal para detectar confirmación de configuración
+    void onConfigConfirmation(Map<String, dynamic> data) {
+      if (data.containsKey('config_saved') && data['config_saved'] == true) {
+        debugPrint(
+            '[SETTINGS] ✅ Confirmación de configuración recibida del ESP32');
+        completer.complete(true);
+        // Limpiar el mensaje del notifier
+        SingletonMqttService().notifier.value = {...data}
+          ..remove('config_saved');
+      }
+    }
+
+    // Agregar listener temporal
+    SingletonMqttService().notifier.addListener(() {
+      onConfigConfirmation(SingletonMqttService().notifier.value);
+    });
 
     try {
       debugPrint('[SETTINGS] 🚀 Iniciando guardado de configuración...');
@@ -382,9 +606,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           '  - Reportes: enabled=$dailyReportEnabled, time=${dailyReportTime.hour}:${dailyReportTime.minute}');
 
       try {
+        debugPrint(
+            '[SETTINGS] 🔍 Verificando estado MQTT antes de enviar configuración...');
+        debugPrint(
+            '[SETTINGS] Estado MQTT: ${SingletonMqttService().mqttConnected}');
+        debugPrint('[SETTINGS] Broker configurado: $mqttBroker:$mqttPort');
+        debugPrint('[SETTINGS] Topic configurado: $mqttTopic');
+
         final configResult = await SingletonMqttService()
             .mqttClientService
-            .sendUnifiedConfigToESP32(
+            .sendFullConfigToESP32(
               broker: mqttBroker,
               port: mqttPort,
               topic: mqttTopic,
@@ -408,50 +639,97 @@ class _SettingsScreenState extends State<SettingsScreen> {
               dailyReportEnabled: dailyReportEnabled,
               dailyReportTime: dailyReportTime,
             );
+        debugPrint('[SETTINGS] ✅ Configuración unificada enviada al ESP32');
+        debugPrint('[SETTINGS] 📡 Mensaje enviado al topic: dropster/control');
         debugPrint(
-            '[SETTINGS] ✅ Configuración unificada enviada y confirmada por ESP32: ${configResult['status']}');
+            '[SETTINGS] ⏳ Esperando confirmación del ESP32 en topic: dropster/status');
 
-        // Cerrar diálogo de progreso y mostrar éxito
+        // Esperar confirmación del ESP32 con timeout de 15 segundos
+        debugPrint('[SETTINGS] ⏳ Esperando confirmación del ESP32...');
+        final confirmed = await completer.future.timeout(
+          const Duration(seconds: 15),
+          onTimeout: () {
+            debugPrint('[SETTINGS] ⏰ Timeout esperando confirmación del ESP32');
+            return false;
+          },
+        );
+
+        // Cerrar diálogo de progreso
         if (mounted && Navigator.canPop(context)) {
           Navigator.of(context).pop();
         }
 
-        // Actualizar configuración previa para futuras comparaciones
-        oldMqttBroker = mqttBroker;
-        oldMqttPort = mqttPort;
-        oldMqttTopic = mqttTopic;
-        oldTankFullThreshold = tankFullThreshold;
-        oldVoltageLowThreshold = voltageLowThreshold;
-        oldHumidityLowThreshold = humidityLowThreshold;
-        oldTankFullEnabled = tankFullEnabled;
-        oldVoltageLowEnabled = voltageLowEnabled;
-        oldHumidityLowEnabled = humidityLowEnabled;
-        oldControlDeadband = controlDeadband;
-        oldControlMinOff = controlMinOff;
-        oldControlMaxOn = controlMaxOn;
-        oldControlSampling = controlSampling;
-        oldControlAlpha = controlAlpha;
-        oldMaxCompressorTemp = maxCompressorTemp;
-        oldShowNotifications = showNotifications;
+        if (confirmed) {
+          // Actualizar configuración previa para futuras comparaciones
+          oldMqttBroker = mqttBroker;
+          oldMqttPort = mqttPort;
+          oldMqttTopic = mqttTopic;
+          oldTankFullThreshold = tankFullThreshold;
+          oldVoltageLowThreshold = voltageLowThreshold;
+          oldHumidityLowThreshold = humidityLowThreshold;
+          oldTankFullEnabled = tankFullEnabled;
+          oldVoltageLowEnabled = voltageLowEnabled;
+          oldHumidityLowEnabled = humidityLowEnabled;
+          oldControlDeadband = controlDeadband;
+          oldControlMinOff = controlMinOff;
+          oldControlMaxOn = controlMaxOn;
+          oldControlSampling = controlSampling;
+          oldControlAlpha = controlAlpha;
+          oldMaxCompressorTemp = maxCompressorTemp;
+          oldShowNotifications = showNotifications;
 
-        // Mostrar mensaje de éxito
-        if (mounted) {
-          showDialog(
-            context: context,
-            builder: (BuildContext successContext) {
-              return AlertDialog(
-                title: const Text('✅ Éxito'),
-                content: const Text(
-                    'Configuración cargada exitosamente en el ESP32'),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(successContext).pop(),
-                    child: const Text('Aceptar'),
-                  ),
-                ],
-              );
-            },
-          );
+          // Mostrar mensaje de éxito
+          if (mounted) {
+            showDialog(
+              context: context,
+              builder: (BuildContext successContext) {
+                return AlertDialog(
+                  title: const Text('✅ Éxito'),
+                  content: const Text(
+                      'Configuración cargada exitosamente en el ESP32'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(successContext).pop(),
+                      child: const Text('Aceptar'),
+                    ),
+                  ],
+                );
+              },
+            );
+          }
+        } else {
+          // No se recibió confirmación
+          if (mounted) {
+            showDialog(
+              context: context,
+              builder: (BuildContext errorContext) {
+                return AlertDialog(
+                  title: const Text('❌ Error'),
+                  content: const Text(
+                      'Error en el envio de configuracion a Dropster AWG:\nNo se recibio confirmacion del dispositivo en 15 segundos\n\nVerifica que el dispositivo Dropster AWG este conectado y\nfuncionando correctamente.'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(errorContext).pop(),
+                      style: TextButton.styleFrom(
+                        backgroundColor: const Color(0xFF206877),
+                        foregroundColor: Colors.white,
+                        textStyle: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 24, vertical: 12),
+                      ),
+                      child: const Text('Aceptar'),
+                    ),
+                  ],
+                );
+              },
+            );
+          }
         }
       } catch (e) {
         debugPrint(
@@ -462,31 +740,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Navigator.of(context).pop();
         }
 
-        // Mostrar error al usuario con más detalles
+        // Mostrar error al usuario
         if (mounted) {
           showDialog(
             context: context,
             builder: (BuildContext errorContext) {
               return AlertDialog(
                 title: const Text('❌ Error'),
-                content: const Text(
-                    'Error en el envio de configuracion a Dropster AWG:\nNo se recibio confirmacion del dispositivo en 15 segundos\n\nVerifica que el dispositivo Dropster AWG este conectado y\nfuncionando correctamente.'),
+                content: Text('Error enviando configuración: $e'),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.of(errorContext).pop(),
-                    style: TextButton.styleFrom(
-                      backgroundColor: const Color(0xFF206877),
-                      foregroundColor: Colors.white,
-                      textStyle: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 24, vertical: 12),
-                    ),
                     child: const Text('Aceptar'),
                   ),
                 ],
@@ -494,6 +758,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             },
           );
         }
+      } finally {
+        // Limpiar listener temporal
+        SingletonMqttService().notifier.removeListener(() {
+          onConfigConfirmation(SingletonMqttService().notifier.value);
+        });
       }
     } catch (e) {
       debugPrint('[SETTINGS] ❌ Error guardando configuración: $e');
@@ -551,9 +820,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         foregroundColor: Colors.white,
         actions: [
           IconButton(
-            icon: const Icon(Icons.save),
-            onPressed: _saveSettings,
-            tooltip: 'Guardar configuración',
+            icon: const Icon(Icons.refresh),
+            onPressed: _syncConfigFromESP32,
+            tooltip: 'Sincronizar configuración desde ESP32',
           ),
         ],
       ),
@@ -1018,13 +1287,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const Divider(),
 
             // Alerta de temperatura máxima del compresor
-            SwitchListTile(
-              title: const Text('Alerta de temperatura máxima del compresor'),
+            ListTile(
+              title: Text(
+                'Alerta de temperatura máxima del compresor',
+                style: const TextStyle(color: Colors.white),
+              ),
               subtitle: Text(
-                  'Notificar cuando la temperatura supere los ${maxCompressorTemp.toStringAsFixed(1)}°C'),
-              value: true,
-              onChanged: null, // Siempre habilitada
-              activeColor: colorAccent,
+                'Notificar cuando la temperatura supere los ${maxCompressorTemp.toStringAsFixed(1)}°C',
+                style: const TextStyle(color: Colors.white),
+              ),
             ),
             // Slider para el umbral
             Padding(

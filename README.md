@@ -64,22 +64,14 @@ Dropster es una aplicación móvil desarrollada en Flutter para el control y mon
   - Visualización en tabla y gráfica
   - Zoom y controles de visualización
 
-### 4. **Pantalla de Notificaciones (NotificationsScreen)**
-- **Ubicación**: `lib/screens/notifications_screen.dart`
-- **Funcionalidad**:
-  - Lista de anomalías detectadas
-  - Filtros por tipo, fase y fecha
-  - Detalles completos de cada evento
-  - Gestión de notificaciones almacenadas
-
-### 5. **Pantalla de Monitoreo (MonitorScreen)**
+### 4. **Pantalla de Monitoreo (MonitorScreen)**
 - **Ubicación**: `lib/screens/monitor_screen.dart`
 - **Funcionalidad**:
   - Datos organizados por categorías (Ambiente, Eléctrico, Agua)
   - Visualización de variables específicas del sistema AWG
   - Interfaz con pestañas para mejor organización
 
-### 6. **Pantalla de Configuración (SettingsScreen)**
+### 5. **Pantalla de Configuración (SettingsScreen)**
 - **Ubicación**: `lib/screens/settings_screen.dart`
 - **Funcionalidad**:
   - Configuración de valores nominales
@@ -87,14 +79,14 @@ Dropster es una aplicación móvil desarrollada en Flutter para el control y mon
   - Gestión de almacenamiento y notificaciones
   - Configuración de gráficas
 
-### 7. **Pantalla de Información (InfoScreen)**
+### 6. **Pantalla de Información (InfoScreen)**
 - **Ubicación**: `lib/screens/info_screen.dart`
 - **Funcionalidad**:
   - Información sobre la aplicación
   - Guía de uso detallada
   - Créditos y versión
 
-### 8. **Pantalla Principal Alternativa (DropsterHomeScreen)**
+### 7. **Pantalla Principal Alternativa (DropsterHomeScreen)**
 - **Ubicación**: `lib/screens/dropster_home_screen.dart`
 - **Funcionalidad**:
   - Interfaz alternativa con enfoque en el sistema AWG
@@ -263,17 +255,17 @@ dev_dependencies:
    - Configurar parámetros de conexión
 
 2. **Monitorear datos**:
-   - Ver datos en tiempo real en "Home"
-   - Analizar tendencias en "Gráficas"
-   - Revisar anomalías en "Notificaciones"
+    - Ver datos en tiempo real en "Home"
+    - Analizar tendencias en "Gráficas"
+    - Revisar datos organizados en "Monitoreo"
 
 ### 📱 **Navegación**
 
 La aplicación utiliza navegación inferior con 6 secciones principales:
 - **Home**: Datos principales y configuración rápida
+- **Monitoreo**: Datos organizados por categorías
 - **Conectividad**: Gestión de conexiones
 - **Gráficas**: Visualización histórica y tiempo real
-- **Notificaciones**: Alertas y anomalías
 - **Configuración**: Ajustes completos del sistema
 - **Info**: Información y ayuda
 

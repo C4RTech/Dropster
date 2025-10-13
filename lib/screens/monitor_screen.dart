@@ -58,6 +58,17 @@ class _MonitorScreenState extends State<MonitorScreen>
         print('[MONITOR ELECTRICO DEBUG] ⚡ Energía: ${data['energia']}Wh');
       }
 
+      // Log para estado del compresor
+      if (data.containsKey('cs')) {
+        print('[MONITOR COMPRESOR DEBUG] 🔧 Estado compresor: ${data['cs']}');
+      }
+
+      // Log para temperatura del compresor
+      if (data.containsKey('compressorTemp')) {
+        print(
+            '[MONITOR COMPRESOR DEBUG] 🌡️ Temp. compresor: ${data['compressorTemp']}°C');
+      }
+
       // === ACTUALIZACIÓN INMEDIATA DE UI ===
       // Forzar rebuild inmediato para valores eléctricos
       print('[MONITOR DEBUG] 🔄 Forzando actualización inmediata de UI...');
@@ -198,14 +209,20 @@ class _MonitorScreenState extends State<MonitorScreen>
                 textColor: Colors.white),
             _bigCard(
                 icon: Icons.thermostat,
+                label: 'Temp. compresor',
+                value: _formatValue(_getValue('compressorTemp'), '°C'),
+                color: colorAccent,
+                textColor: Colors.white),
+            _bigCard(
+                icon: Icons.thermostat,
                 label: 'Temp. evaporador',
-                value: _formatValue(_getValue('temperaturaEvaporador'), '°C'),
+                value: _formatValue(_getValue('sht1Temp'), '°C'),
                 color: colorAccent,
                 textColor: Colors.white),
             _bigCard(
                 icon: Icons.water,
                 label: 'Humedad relativa evaporador',
-                value: _formatValue(_getValue('humedadEvaporador'), '%'),
+                value: _formatValue(_getValue('sht1Hum'), '%'),
                 color: colorAccent,
                 textColor: Colors.white),
             _bigCard(
