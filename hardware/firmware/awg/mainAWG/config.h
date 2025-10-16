@@ -123,4 +123,42 @@
   #error "MQTT_BROKER no definido en config.h"
 #endif
 
+// Tamaños de buffers JSON
+#define STATUS_JSON_SIZE 200
+#define DATA_JSON_SIZE 300
+#define BACKUP_JSON_SIZE 1024
+#define CONFIG_JSON_SIZE 2048
+
+// Constantes de algoritmos
+#define CALIBRATION_DISTANCE_TOLERANCE 2.0f    // Tolerancia para distancia en calibración
+#define CALIBRATION_RATIO_MIN 0.1f             // Ratio mínimo distancia/volumen
+#define CALIBRATION_RATIO_MAX 10.0f            // Ratio máximo distancia/volumen
+#define MIN_VALID_SAMPLES 3                    // Muestras mínimas para promedio
+#define ULTRASONIC_MIN_DISTANCE 2.0f           // Distancia mínima válida (cm)
+#define ULTRASONIC_MAX_DISTANCE 400.0f         // Distancia máxima válida (cm)
+#define WATER_VOLUME_MIN 0.0f                  // Volumen mínimo de agua
+#define TEMP_MIN_VALID -50.0f                  // Temperatura mínima válida (°C)
+#define TEMP_MAX_VALID 200.0f                  // Temperatura máxima válida (°C)
+#define ABSOLUTE_ZERO -273.15f                 // Cero absoluto para cálculos
+#define COMPRESSOR_FAN_TEMP_ON_OFFSET 10.0f    // Offset para encender ventilador (°C)
+#define COMPRESSOR_FAN_TEMP_OFF_OFFSET 20.0f   // Offset para apagar ventilador (°C)
+#define CONTROL_SMOOTHING_ALPHA 0.7f           // Factor de suavizado en control
+#define TERMISTOR_SAMPLES 20                   // Muestras para promediar termistor
+#define RECOVERY_MAX_ATTEMPTS 5                // Intentos máximos de recuperación
+#define RECOVERY_SUCCESS_THRESHOLD 3           // Umbral de éxito en recuperación
+
+// Constantes de timing adicionales
+#define STARTUP_DELAY 1000                     // Delay de inicio (ms)
+#define LOOP_DELAY 10                          // Delay del loop principal (ms)
+#define STATS_SAVE_INTERVAL 300000UL           // Intervalo para guardar estadísticas (ms, 5 min)
+#define CONFIG_ASSEMBLE_TIMEOUT 10000          // Timeout para ensamblaje de config (ms)
+
+// Constantes para arrays y contadores
+#define CONFIG_FRAGMENT_COUNT 4                 // Número de fragmentos de configuración
+
+// Otras constantes
+#define WATER_PERCENT_MIN 0.0f                  // Porcentaje mínimo de agua
+#define WATER_PERCENT_MAX 100.0f                // Porcentaje máximo de agua
+#define VOLTAGE_ZERO_THRESHOLD 0.1f             // Umbral para voltaje cero
+
 #endif  // CONFIG_H

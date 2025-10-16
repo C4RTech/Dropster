@@ -435,8 +435,78 @@ class _HomeScreenState extends State<HomeScreen>
     print('[UI DEBUG] Iniciando toggle de la bomba. Estado actual: $pumpState');
     final startTime = DateTime.now();
 
-    // Actualizar estado local optimistamente
+    // Verificar condiciones locales antes de enviar comando (solo para encendido)
     final newState = pumpState == 1 ? 0 : 1;
+
+    if (newState == 1) {
+      // Solo verificar al encender
+      // Verificar nivel de agua mínimo (5%)
+      final settingsBox = Hive.box('settings');
+      final tankCapacity =
+          settingsBox.get('tankCapacity', defaultValue: 1000.0);
+      final waterStored = globalNotifier.value['aguaAlmacenada'];
+
+      if (waterStored != null && tankCapacity > 0) {
+        final waterLiters = (waterStored as num).toDouble();
+        final waterPercent = (waterLiters / tankCapacity) * 100.0;
+
+        if (waterPercent < 5.0) {
+          print(
+              '[UI DEBUG] Verificación local FALLIDA: Nivel de agua insuficiente (${waterPercent.toStringAsFixed(1)}% < 5.0%)');
+          _showPumpErrorDialog(
+              reason: 'low_water',
+              message: 'Nivel de agua insuficiente para activar la bomba');
+          return; // No enviar comando
+        }
+        print(
+            '[UI DEBUG] Verificación local OK: Nivel de agua ${waterPercent.toStringAsFixed(1)}% >= 5.0%');
+      } else {
+        print(
+            '[UI DEBUG] No se puede verificar nivel de agua - datos insuficientes');
+        // Continuar con el comando pero mostrar advertencia
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No se puede verificar el nivel de agua - procediendo con precaución',
+              style: TextStyle(color: Color(0xFF155263)),
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+
+      // Verificar voltaje mínimo (100V)
+      final voltage = globalNotifier.value['voltaje'];
+      if (voltage != null) {
+        final voltageValue = (voltage as num).toDouble();
+        if (voltageValue < 100.0) {
+          print(
+              '[UI DEBUG] Verificación local FALLIDA: Voltaje insuficiente (${voltageValue}V < 100.0V)');
+          _showPumpErrorDialog(
+              reason: 'low_voltage',
+              message: 'Voltaje insuficiente para activar la bomba');
+          return; // No enviar comando
+        }
+        print(
+            '[UI DEBUG] Verificación local OK: Voltaje ${voltageValue}V >= 100.0V');
+      } else {
+        print('[UI DEBUG] No se puede verificar voltaje - dato no disponible');
+        // Continuar con el comando pero mostrar advertencia
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No se puede verificar el voltaje - procediendo con precaución',
+              style: TextStyle(color: Color(0xFF155263)),
+            ),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+
+    // Actualizar estado local optimistamente
     setState(() {
       pumpState = newState;
     });

@@ -453,6 +453,10 @@ class NotificationService {
             notificationTitle = 'Humedad Baja Detectada';
             break;
           // pump_error removido - solo muestra diálogo en UI, no notificación push
+          case 'voltage_zero':
+            title = '⚡ ¡FALLA ELÉCTRICA!';
+            notificationTitle = 'Falla Eléctrica Detectada';
+            break;
           default:
             title = '🚨 ALERTA DEL SISTEMA';
             notificationTitle = 'Alerta del Sistema';
