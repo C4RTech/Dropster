@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import '../services/mqtt_config_service.dart';
 
 class MqttConfigScreen extends StatefulWidget {
-  const MqttConfigScreen({Key? key}) : super(key: key);
+  const MqttConfigScreen({super.key});
 
   @override
   State<MqttConfigScreen> createState() => _MqttConfigScreenState();

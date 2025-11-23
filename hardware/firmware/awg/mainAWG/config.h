@@ -17,9 +17,9 @@
 #define MQTT_TOPIC_SYSTEM "dropster/system"       // Estado general del sistema
 
 // Intervalos de operación (ms)
-#define SENSOR_READ_INTERVAL 3000
-#define UART_TRANSMIT_INTERVAL 3000
-#define MQTT_TRANSMIT_INTERVAL 3000
+#define SENSOR_READ_INTERVAL 2000  // Reducido para lecturas más frecuentes
+#define UART_TRANSMIT_INTERVAL 3000  // Reducido para display más responsivo
+#define MQTT_TRANSMIT_INTERVAL 5000
 #define HEARTBEAT_INTERVAL 60000
 #define WIFI_CHECK_INTERVAL 10000
 #define MQTT_RECONNECT_DELAY 5000
@@ -35,10 +35,9 @@
 #define A_MAGNUS 611.2
 
 // Constantes del termistor NTC
-#define BETA 3950.0                    // Coeficiente Beta
+#define BETA 3435.0                    // Coeficiente Beta
 #define NOMINAL_RESISTANCE 10000.0     // 10kΩ a 25°C
-#define NOMINAL_TEMP 298.15            // 25°C en Kelvin (25.0 + 273.15)
-#define CURRENT 100e-6                 // 100 microamperios
+#define NOMINAL_TEMP 246.5            //  (calibrado para 27°C)
 #define ADC_RESOLUTION 4095            // 12 bits
 #define VREF 3.3                       // Voltaje de referencia
 
@@ -49,20 +48,62 @@
 #define LOG_DEBUG 3
 
 // Pines
-#define COMPRESSOR_RELAY_PIN 4
-#define VENTILADOR_RELAY_PIN 0
-#define COMPRESSOR_FAN_RELAY_PIN 26
-#define PUMP_RELAY_PIN 27
+#define COMPRESSOR_RELAY_PIN 33
+#define VENTILADOR_RELAY_PIN 27
+#define COMPRESSOR_FAN_RELAY_PIN 25
+#define PUMP_RELAY_PIN 26
 #define SDA_PIN 21
 #define SCL_PIN 22
-#define RX1_PIN 14
-#define TX1_PIN 15
+#define RX1_PIN 0
+#define TX1_PIN 4
 #define RX2_PIN 19
 #define TX2_PIN 18
 #define TRIG_PIN 12
-#define ECHO_PIN 13
-#define CONFIG_BUTTON_PIN 5
+#define ECHO_PIN 14
+#define CONFIG_BUTTON_PIN 15
 #define TERMISTOR_PIN 34
+
+// Pines LED RGB
+#define LED_R_PIN 2
+#define LED_G_PIN 23
+#define LED_B_PIN 32
+#define BACKLIGHT_PIN 5  // GPIO del ESP32 conectado al pin BL del display (GPIO21 del display)
+#define LEDC_CHANNEL_R 0
+#define LEDC_CHANNEL_G 1
+#define LEDC_CHANNEL_B 2
+#define LEDC_FREQ 5000
+#define LEDC_RES 8
+
+// Intensidades LED RGB (0.0-1.0) - Máximo brillo para mejor visibilidad
+#define LED_INTENSITY_R 1.0f
+#define LED_INTENSITY_G 1.0f
+#define LED_INTENSITY_B 1.0f
+
+// Colores predefinidos con intensidades ajustadas
+#define COLOR_RED_R (uint8_t)(255 * LED_INTENSITY_R)
+#define COLOR_RED_G 0
+#define COLOR_RED_B 0
+
+#define COLOR_GREEN_R 0
+#define COLOR_GREEN_G (uint8_t)(255 * LED_INTENSITY_G)
+#define COLOR_GREEN_B 0
+
+#define COLOR_BLUE_R 0
+#define COLOR_BLUE_G 0
+#define COLOR_BLUE_B (uint8_t)(255 * LED_INTENSITY_B)
+
+
+#define COLOR_WHITE_R (uint8_t)(255 * LED_INTENSITY_R)
+#define COLOR_WHITE_G (uint8_t)(255 * LED_INTENSITY_G)
+#define COLOR_WHITE_B (uint8_t)(255 * LED_INTENSITY_B)
+
+#define COLOR_YELLOW_R (uint8_t)(255 * LED_INTENSITY_R)
+#define COLOR_YELLOW_G (uint8_t)(255 * LED_INTENSITY_G)
+#define COLOR_YELLOW_B 0
+
+#define COLOR_ORANGE_R (uint8_t)(210 * LED_INTENSITY_R)
+#define COLOR_ORANGE_G (uint8_t)(50 * LED_INTENSITY_G)
+#define COLOR_ORANGE_B 0
 
 // Direcciones I2C
 #define SHT31_ADDR_1 0x44
@@ -84,8 +125,8 @@
 // Parámetros de control automático (valores por defecto)
 #define CONTROL_DEADBAND_DEFAULT 3.0f      // Banda muerta (°C)
 #define CONTROL_MIN_OFF_DEFAULT 60         // Tiempo mínimo apagado (s)
-#define CONTROL_MAX_ON_DEFAULT 1800        // Tiempo máximo encendido (s)
-#define CONTROL_SAMPLING_DEFAULT 8         // Intervalo de muestreo (s)
+#define CONTROL_MAX_ON_DEFAULT 3600        // Tiempo máximo encendido (s)
+#define CONTROL_SAMPLING_DEFAULT 7         // Intervalo de muestreo (s)
 #define CONTROL_ALPHA_DEFAULT 0.2f         // Factor de suavizado (0-1)
 
 // Configuración de alertas (umbrales por defecto)
@@ -106,11 +147,11 @@
 #define SENSOR_STATUS_CHECK_INTERVAL 30000 // Intervalo de verificación de estado de sensores (ms)
 
 // Configuración WiFi
-#define WIFI_CONFIG_PORTAL_TIMEOUT 180
-#define WIFI_CONNECT_TIMEOUT 30
+#define WIFI_CONFIG_PORTAL_TIMEOUT 15
+#define WIFI_CONNECT_TIMEOUT 15
 
 // Configuración MQTT adicional
-#define MQTT_MAX_ATTEMPTS 8
+#define MQTT_MAX_ATTEMPTS 3
 #define MQTT_MAX_BACKOFF 60000UL
 
 // Constantes de algoritmos
@@ -140,10 +181,10 @@
 #define TEMP_MIN_VALID -50.0f                  // Temperatura mínima válida (°C)
 #define TEMP_MAX_VALID 200.0f                  // Temperatura máxima válida (°C)
 #define ABSOLUTE_ZERO -273.15f                 // Cero absoluto para cálculos
-#define COMPRESSOR_FAN_TEMP_ON_OFFSET 10.0f    // Offset para encender ventilador (°C)
-#define COMPRESSOR_FAN_TEMP_OFF_OFFSET 20.0f   // Offset para apagar ventilador (°C)
+#define COMPRESSOR_FAN_TEMP_ON_OFFSET_DEFAULT 10.0f    // Offset por defecto para encender ventilador (°C)
+#define COMPRESSOR_FAN_TEMP_OFF_OFFSET_DEFAULT 20.0f   // Offset por defecto para apagar ventilador (°C)
 #define CONTROL_SMOOTHING_ALPHA 0.7f           // Factor de suavizado en control
-#define TERMISTOR_SAMPLES 20                   // Muestras para promediar termistor
+#define TERMISTOR_SAMPLES 10                   // Muestras para promediar termistor (reducido para mayor velocidad)
 #define RECOVERY_MAX_ATTEMPTS 5                // Intentos máximos de recuperación
 #define RECOVERY_SUCCESS_THRESHOLD 3           // Umbral de éxito en recuperación
 
@@ -152,6 +193,7 @@
 #define LOOP_DELAY 10                          // Delay del loop principal (ms)
 #define STATS_SAVE_INTERVAL 300000UL           // Intervalo para guardar estadísticas (ms, 5 min)
 #define CONFIG_ASSEMBLE_TIMEOUT 10000          // Timeout para ensamblaje de config (ms)
+#define RTC_SYNC_INTERVAL 86400000UL           // Intervalo para sincronización automática RTC (ms, 24 horas)
 
 // Constantes para arrays y contadores
 #define CONFIG_FRAGMENT_COUNT 4                 // Número de fragmentos de configuración

@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
-import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'background_mqtt_service.dart';
 
 class BackgroundServiceManager {
   static final BackgroundServiceManager _instance =
@@ -89,6 +89,18 @@ Future<void> _onSimpleForegroundStart(ServiceInstance service) async {
           '[BACKGROUND_SERVICE] Recibida señal de stop, deteniendo servicio...');
       service.stopSelf();
     });
+
+    // Inicializar el servicio MQTT de background dentro del entrypoint
+    try {
+      // Cargar e inicializar el servicio que gestionará MQTT en background
+      debugPrint('[BACKGROUND_SERVICE] Inicializando BackgroundMqttService...');
+      await BackgroundMqttService().initialize();
+      debugPrint('[BACKGROUND_SERVICE] BackgroundMqttService inicializado');
+    } catch (e, st) {
+      debugPrint(
+          '[BACKGROUND_SERVICE] Error inicializando BackgroundMqttService: $e');
+      debugPrint('[BACKGROUND_SERVICE] Stack: $st');
+    }
 
     // Mantener servicio vivo
     Timer.periodic(const Duration(seconds: 30), (timer) {

@@ -4,10 +4,11 @@ import 'package:hive/hive.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import '../services/singleton_mqtt_service.dart';
-import 'dart:collection';
-import 'package:intl/intl.dart';
+// import 'package:intl/intl.dart';
 
 class GraphScreen extends StatefulWidget {
+  const GraphScreen({super.key});
+
   @override
   _GraphScreenState createState() => _GraphScreenState();
 }
@@ -366,7 +367,7 @@ class _GraphScreenState extends State<GraphScreen> {
 
       current.sort((a, b) => _getTimestamp(a).compareTo(_getTimestamp(b)));
 
-      final map = LinkedHashMap<int, Map<String, dynamic>>();
+      final map = <int, Map<String, dynamic>>{};
       for (final item in current) {
         final ts = _getTimestamp(item);
         if (ts > 0) map[ts] = item;
@@ -427,8 +428,9 @@ class _GraphScreenState extends State<GraphScreen> {
                 y = rawValue?.toDouble();
               }
 
-              if (time == null || y == null || y.isNaN || y.isInfinite)
+              if (time == null || y == null || y.isNaN || y.isInfinite) {
                 return null;
+              }
 
               final timestamp = time.millisecondsSinceEpoch.toDouble();
               if (timestamp <= 0) return null;

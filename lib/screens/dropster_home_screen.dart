@@ -6,7 +6,7 @@ import '../services/mqtt_service.dart';
 import '../services/mqtt_hive.dart';
 
 class DropsterHomeScreen extends StatefulWidget {
-  const DropsterHomeScreen({Key? key}) : super(key: key);
+  const DropsterHomeScreen({super.key});
 
   @override
   State<DropsterHomeScreen> createState() => _DropsterHomeScreenState();
@@ -101,7 +101,7 @@ class _DropsterHomeScreenState extends State<DropsterHomeScreen> {
   Widget build(BuildContext context) {
     final colorPrimary = Theme.of(context).colorScheme.primary;
     final colorAccent = Theme.of(context).colorScheme.secondary;
-    final colorText = Theme.of(context).colorScheme.onBackground;
+    final colorText = Theme.of(context).colorScheme.onSurface;
     return Scaffold(
       appBar: AppBar(
         title: Row(

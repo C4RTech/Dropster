@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'singleton_mqtt_service.dart';
 
@@ -57,20 +58,21 @@ class MqttHiveService {
   /// El parámetro "source" indica el origen ("MQTT" o "BLE").
   static Map<String, dynamic> parseAwgJson(String jsonString,
       {String source = "MQTT"}) {
-    print('[MQTT DEBUG] Intentando parsear JSON: $jsonString');
+    debugPrint('[MQTT DEBUG] Intentando parsear JSON: $jsonString');
     try {
       final Map<String, dynamic> jsonData =
           Map<String, dynamic>.from(json.decode(jsonString));
 
-      print(
+      debugPrint(
           '[MQTT DEBUG] JSON parseado exitosamente, claves: ${jsonData.keys}');
 
       // Log específico para campo 'e' (energia)
       if (jsonData.containsKey('e')) {
-        print(
+        debugPrint(
             '[ENERGIA DEBUG] Campo "e" encontrado en JSON: ${jsonData['e']} (tipo: ${jsonData['e'].runtimeType})');
       } else {
-        print('[ENERGIA DEBUG] ⚠️ Campo "e" NO encontrado en JSON recibido');
+        debugPrint(
+            '[ENERGIA DEBUG] ⚠️ Campo "e" NO encontrado en JSON recibido');
       }
 
       // Mapear datos del AWG ESP32 (nombres abreviados) al formato esperado por la app
@@ -109,26 +111,29 @@ class MqttHiveService {
 
       // Verificar que energia se mapeó correctamente
       final energiaValue = parsedData['energia'];
-      print(
+      debugPrint(
           '[ENERGIA DEBUG] Valor mapeado para "energia": $energiaValue (tipo: ${energiaValue.runtimeType})');
 
       // Debug exhaustivo de valores eléctricos
-      print('[ESP32 RAW DEBUG] === VALORES CRUDOS DEL ESP32 ===');
-      print('[ESP32 RAW DEBUG] - Voltaje raw: ${jsonData['v']}');
-      print('[ESP32 RAW DEBUG] - Corriente raw: ${jsonData['c']}');
-      print('[ESP32 RAW DEBUG] - Potencia raw: ${jsonData['po']}');
-      print('[ESP32 RAW DEBUG] - Energía raw: ${jsonData['e']}');
+      debugPrint('[ESP32 RAW DEBUG] === VALORES CRUDOS DEL ESP32 ===');
+      debugPrint('[ESP32 RAW DEBUG] - Voltaje raw: ${jsonData['v']}');
+      debugPrint('[ESP32 RAW DEBUG] - Corriente raw: ${jsonData['c']}');
+      debugPrint('[ESP32 RAW DEBUG] - Potencia raw: ${jsonData['po']}');
+      debugPrint('[ESP32 RAW DEBUG] - Energía raw: ${jsonData['e']}');
 
-      print('[FLUTTER PARSED DEBUG] === VALORES MAPEADOS EN FLUTTER ===');
-      print('[FLUTTER PARSED DEBUG] - Voltaje: ${parsedData['voltaje']}V');
-      print('[FLUTTER PARSED DEBUG] - Corriente: ${parsedData['corriente']}A');
-      print('[FLUTTER PARSED DEBUG] - Potencia: ${parsedData['potencia']}W');
-      print('[FLUTTER PARSED DEBUG] - Energía: ${parsedData['energia']}Wh');
+      debugPrint('[FLUTTER PARSED DEBUG] === VALORES MAPEADOS EN FLUTTER ===');
+      debugPrint('[FLUTTER PARSED DEBUG] - Voltaje: ${parsedData['voltaje']}V');
+      debugPrint(
+          '[FLUTTER PARSED DEBUG] - Corriente: ${parsedData['corriente']}A');
+      debugPrint(
+          '[FLUTTER PARSED DEBUG] - Potencia: ${parsedData['potencia']}W');
+      debugPrint(
+          '[FLUTTER PARSED DEBUG] - Energía: ${parsedData['energia']}Wh');
 
       return parsedData;
     } catch (e) {
-      print('[MQTT DEBUG] Error parsing AWG JSON: $e');
-      print(
+      debugPrint('[MQTT DEBUG] Error parsing AWG JSON: $e');
+      debugPrint(
           '[ENERGIA DEBUG] Error durante parsing - campo "e" no pudo procesarse');
       return {};
     }
@@ -194,76 +199,78 @@ class MqttHiveService {
 
   /// Maneja datos recibidos por MQTT, los guarda y actualiza el notifier en tiempo real.
   void onMqttDataReceived(String value) {
-    print('[MQTT DEBUG] ===== NUEVOS DATOS MQTT RECIBIDOS =====');
-    print('[MQTT DEBUG] Payload crudo: $value');
+    debugPrint('[MQTT DEBUG] ===== NUEVOS DATOS MQTT RECIBIDOS =====');
+    debugPrint('[MQTT DEBUG] Payload crudo: $value');
 
     Map<String, dynamic> data;
 
     // Intentar parsear como JSON (AWG ESP32) primero
     if (value.trim().startsWith('{')) {
-      print('[MQTT DEBUG] Detectado formato JSON, parseando...');
+      debugPrint('[MQTT DEBUG] Detectado formato JSON, parseando...');
       data = parseAwgJson(value, source: "MQTT");
     } else {
       // Fallback a CSV (formato legacy)
-      print('[MQTT DEBUG] Detectado formato CSV, parseando...');
+      debugPrint('[MQTT DEBUG] Detectado formato CSV, parseando...');
       data = parseCsvLine(value, source: "MQTT");
     }
 
-    print('[MQTT DEBUG] Datos parseados exitosamente:');
-    print('[MQTT DEBUG] - Número de campos: ${data.length}');
-    print('[MQTT DEBUG] - Campos disponibles: ${data.keys.toList()}');
+    debugPrint('[MQTT DEBUG] Datos parseados exitosamente:');
+    debugPrint('[MQTT DEBUG] - Número de campos: ${data.length}');
+    debugPrint('[MQTT DEBUG] - Campos disponibles: ${data.keys.toList()}');
 
     // Mostrar TODOS los valores para debugging exhaustivo
-    print('[MQTT DEBUG] === VALORES ELÉCTRICOS PROCESADOS ===');
-    print('[MQTT DEBUG] - Voltaje: ${data['voltaje']}V');
-    print('[MQTT DEBUG] - Corriente: ${data['corriente']}A');
-    print('[MQTT DEBUG] - Potencia: ${data['potencia']}W');
-    print('[MQTT DEBUG] - Energía: ${data['energia']}Wh');
+    debugPrint('[MQTT DEBUG] === VALORES ELÉCTRICOS PROCESADOS ===');
+    debugPrint('[MQTT DEBUG] - Voltaje: ${data['voltaje']}V');
+    debugPrint('[MQTT DEBUG] - Corriente: ${data['corriente']}A');
+    debugPrint('[MQTT DEBUG] - Potencia: ${data['potencia']}W');
+    debugPrint('[MQTT DEBUG] - Energía: ${data['energia']}Wh');
 
     // Verificar si los valores son exactamente 0.0
-    if (data['voltaje'] == 0.0) print('[MQTT DEBUG] ⚠️ VOLTAJE ES 0.0');
-    if (data['corriente'] == 0.0) print('[MQTT DEBUG] ⚠️ CORRIENTE ES 0.0');
-    if (data['potencia'] == 0.0) print('[MQTT DEBUG] ⚠️ POTENCIA ES 0.0');
-    if (data['energia'] == 0.0) print('[MQTT DEBUG] ⚠️ ENERGÍA ES 0.0');
+    if (data['voltaje'] == 0.0) debugPrint('[MQTT DEBUG] ⚠️ VOLTAJE ES 0.0');
+    if (data['corriente'] == 0.0)
+      debugPrint('[MQTT DEBUG] ⚠️ CORRIENTE ES 0.0');
+    if (data['potencia'] == 0.0) debugPrint('[MQTT DEBUG] ⚠️ POTENCIA ES 0.0');
+    if (data['energia'] == 0.0) debugPrint('[MQTT DEBUG] ⚠️ ENERGÍA ES 0.0');
 
     // Mostrar otros valores clave
     if (data.containsKey('temperaturaAmbiente')) {
-      print(
+      debugPrint(
           '[MQTT DEBUG] - Temperatura ambiente: ${data['temperaturaAmbiente']}°C');
     }
     if (data.containsKey('humedadRelativa')) {
-      print('[MQTT DEBUG] - Humedad relativa: ${data['humedadRelativa']}%');
+      debugPrint(
+          '[MQTT DEBUG] - Humedad relativa: ${data['humedadRelativa']}%');
     }
     if (data.containsKey('aguaAlmacenada')) {
-      print('[MQTT DEBUG] - Agua almacenada: ${data['aguaAlmacenada']}L');
+      debugPrint('[MQTT DEBUG] - Agua almacenada: ${data['aguaAlmacenada']}L');
     }
     if (data.containsKey('energia')) {
       final energiaValue = data['energia'];
-      print(
+      debugPrint(
           '[MQTT DEBUG] - Energía: ${energiaValue}Wh (tipo: ${energiaValue.runtimeType})');
       if (energiaValue != null && energiaValue != 0.0) {
-        print('[MQTT DEBUG] - Energía valor válido: ${energiaValue}Wh');
+        debugPrint('[MQTT DEBUG] - Energía valor válido: ${energiaValue}Wh');
       } else {
-        print('[MQTT DEBUG] - Energía es null o cero: ${energiaValue}Wh');
+        debugPrint('[MQTT DEBUG] - Energía es null o cero: ${energiaValue}Wh');
       }
     } else {
-      print('[MQTT DEBUG] - Campo "energia" NO encontrado en datos');
+      debugPrint('[MQTT DEBUG] - Campo "energia" NO encontrado en datos');
     }
 
     if (data.isNotEmpty && isSavingEnabled() && dataBox != null) {
       dataBox!.add(data);
-      print('[MQTT DEBUG] ✅ Datos guardados en Hive correctamente');
+      debugPrint('[MQTT DEBUG] ✅ Datos guardados en Hive correctamente');
     } else {
-      print('[MQTT DEBUG] ❌ No se guardaron datos:');
-      print('[MQTT DEBUG]   - Datos vacíos: ${data.isEmpty}');
-      print('[MQTT DEBUG]   - Guardado habilitado: ${isSavingEnabled()}');
-      print('[MQTT DEBUG]   - DataBox disponible: ${dataBox != null}');
+      debugPrint('[MQTT DEBUG] ❌ No se guardaron datos:');
+      debugPrint('[MQTT DEBUG]   - Datos vacíos: ${data.isEmpty}');
+      debugPrint('[MQTT DEBUG]   - Guardado habilitado: ${isSavingEnabled()}');
+      debugPrint('[MQTT DEBUG]   - DataBox disponible: ${dataBox != null}');
     }
 
     // Notifica a la app en TIEMPO REAL con actualización inmediata de valores eléctricos
-    print('[MQTT DEBUG] Actualizando notifier global...');
+    debugPrint('[MQTT DEBUG] Actualizando notifier global...');
     final oldNotifierValue = SingletonMqttService().notifier.value;
-    print('[MQTT DEBUG] - Campos anteriores: ${oldNotifierValue.length}');
+    debugPrint('[MQTT DEBUG] - Campos anteriores: ${oldNotifierValue.length}');
 
     // === ACTUALIZACIÓN INMEDIATA PARA VALORES ELÉCTRICOS ===
     // Asegurar que voltaje, corriente, potencia y energía se actualicen inmediatamente
@@ -283,17 +290,17 @@ class MqttHiveService {
     SingletonMqttService().notifier.value = updatedData;
 
     final newNotifierValue = SingletonMqttService().notifier.value;
-    print('[MQTT DEBUG] - Campos después: ${newNotifierValue.length}');
+    debugPrint('[MQTT DEBUG] - Campos después: ${newNotifierValue.length}');
 
     // Debug específico de valores eléctricos
-    print('[MQTT DEBUG] ⚡ VALORES ELÉCTRICOS ACTUALIZADOS:');
-    print('[MQTT DEBUG]   - Voltaje: ${newNotifierValue['voltaje']}V');
-    print('[MQTT DEBUG]   - Corriente: ${newNotifierValue['corriente']}A');
-    print('[MQTT DEBUG]   - Potencia: ${newNotifierValue['potencia']}W');
-    print('[MQTT DEBUG]   - Energía: ${newNotifierValue['energia']}Wh');
+    debugPrint('[MQTT DEBUG] ⚡ VALORES ELÉCTRICOS ACTUALIZADOS:');
+    debugPrint('[MQTT DEBUG]   - Voltaje: ${newNotifierValue['voltaje']}V');
+    debugPrint('[MQTT DEBUG]   - Corriente: ${newNotifierValue['corriente']}A');
+    debugPrint('[MQTT DEBUG]   - Potencia: ${newNotifierValue['potencia']}W');
+    debugPrint('[MQTT DEBUG]   - Energía: ${newNotifierValue['energia']}Wh');
 
-    print('[MQTT DEBUG] ✅ Notifier actualizado correctamente');
-    print('[MQTT DEBUG] ===== FIN PROCESAMIENTO DATOS =====');
+    debugPrint('[MQTT DEBUG] ✅ Notifier actualizado correctamente');
+    debugPrint('[MQTT DEBUG] ===== FIN PROCESAMIENTO DATOS =====');
   }
 
   /// Obtener estado del compresor (0=OFF, 1=ON)

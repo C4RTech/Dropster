@@ -12,7 +12,7 @@ class CircularCard extends StatelessWidget {
   final String? subtitle;
 
   const CircularCard({
-    Key? key,
+    super.key,
     required this.title,
     required this.value,
     required this.icon,
@@ -22,7 +22,7 @@ class CircularCard extends StatelessWidget {
     this.showBorder = true,
     this.size = 120,
     this.subtitle,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -109,7 +109,7 @@ class AnimatedCircularCard extends StatefulWidget {
   final Duration animationDuration;
 
   const AnimatedCircularCard({
-    Key? key,
+    super.key,
     required this.title,
     required this.value,
     required this.icon,
@@ -120,7 +120,7 @@ class AnimatedCircularCard extends StatefulWidget {
     this.size = 120,
     this.subtitle,
     this.animationDuration = const Duration(milliseconds: 300),
-  }) : super(key: key);
+  });
 
   @override
   State<AnimatedCircularCard> createState() => _AnimatedCircularCardState();
@@ -199,7 +199,7 @@ class StatusCircularCard extends StatelessWidget {
   final double size;
 
   const StatusCircularCard({
-    Key? key,
+    super.key,
     required this.title,
     required this.value,
     required this.icon,
@@ -207,7 +207,7 @@ class StatusCircularCard extends StatelessWidget {
     required this.isActive,
     this.onTap,
     this.size = 120,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

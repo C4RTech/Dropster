@@ -21,6 +21,9 @@
 #define XPT2046_CLK 25
 #define XPT2046_CS 33
 
+// Pin para control del backlight del display
+#define TFT_BACKLIGHT_PIN 21
+
 #define LV_COLOR_DEPTH 16
 
 SPIClass touchscreenSPI = SPIClass(VSPI);
@@ -35,6 +38,11 @@ bool ledState = false;
 bool ventState = false;
 bool compFanState = false;
 bool pumpState = false;
+// Variables para control del backlight
+bool backlightOn = true;
+unsigned long lastActivityTime = 0;
+unsigned int screenTimeoutSec = 0;  // Timeout en segundos, 0 = deshabilitado
+
 lv_obj_t *labels[13];
 lv_obj_t *agua_label;
 
@@ -66,16 +74,24 @@ void log_print(lv_log_level_t level, const char * buf) {
 
 // Touchscreen para LVGL
 void touchscreen_read(lv_indev_t * indev, lv_indev_data_t * data) {
-  if(touchscreen.tirqTouched() && touchscreen.touched()) {
-    TS_Point p = touchscreen.getPoint();
-    int x = map(p.x, 200, 3700, 1, SCREEN_WIDTH);
-    int y = map(p.y, 240, 3800, 1, SCREEN_HEIGHT);
-    data->state = LV_INDEV_STATE_PRESSED;
-    data->point.x = x;
-    data->point.y = y;
-  } else {
-    data->state = LV_INDEV_STATE_RELEASED;
-  }
+   if(touchscreen.tirqTouched() && touchscreen.touched()) {
+     TS_Point p = touchscreen.getPoint();
+     int x = map(p.x, 200, 3700, 1, SCREEN_WIDTH);
+     int y = map(p.y, 240, 3800, 1, SCREEN_HEIGHT);
+     data->state = LV_INDEV_STATE_PRESSED;
+     data->point.x = x;
+     data->point.y = y;
+
+     // Reset timer de actividad cuando hay toque en pantalla
+     lastActivityTime = millis();
+     if (!backlightOn) {
+       digitalWrite(TFT_BACKLIGHT_PIN, HIGH);
+       backlightOn = true;
+       Serial.println("BACKLIGHT:ON");  // Notificar al ESP32
+     }
+   } else {
+     data->state = LV_INDEV_STATE_RELEASED;
+   }
 }
 
 // Botón: ON/OFF inmediato y respuesta rápida
@@ -202,6 +218,18 @@ static void event_handler_mode(lv_event_t * e) {
   }
 }
 
+// Handler para activar portal WiFi desde display
+static void event_handler_wifi_config(lv_event_t * e) {
+  if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+  Serial1.println("WIFI_CONFIG");  // Comando para abrir portal WiFi
+}
+
+// Handler para reconectar WiFi y MQTT desde display
+static void event_handler_reconnect(lv_event_t * e) {
+  if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+  Serial1.println("RECONNECT");  // Comando para reconectar WiFi y MQTT
+}
+
 const char* names[13] = {
     "Temperatura:", "Presion ATM:", "Humedad Relativa:", "Humedad Abs:", "Pto Rocio:",
     "Temperatura:", "Humedad Relativa:",
@@ -291,6 +319,42 @@ void lv_create_main_gui(void) {
     lv_obj_set_flex_align(data_panel, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_SPACE_EVENLY);
     lv_obj_set_style_pad_all(data_panel, 6, 0);
     lv_obj_set_style_pad_row(data_panel, 2, 0);
+
+    // Botón para configurar WiFi
+    lv_obj_t *wifi_config_btn = lv_button_create(bg);
+    lv_obj_set_size(wifi_config_btn, 180, 30);
+    lv_obj_add_event_cb(wifi_config_btn, event_handler_wifi_config, LV_EVENT_CLICKED, NULL);
+    lv_obj_set_style_bg_color(wifi_config_btn, COLOR_SECONDARY, 0);
+    lv_obj_set_style_radius(wifi_config_btn, 16, 0);
+    lv_obj_set_style_shadow_color(wifi_config_btn, lv_color_darken(COLOR_SECONDARY, 20), 0);
+    lv_obj_set_style_shadow_width(wifi_config_btn, 10, 0);
+    lv_obj_set_style_shadow_ofs_y(wifi_config_btn, 1, 0);
+
+    lv_obj_t *wifi_config_label = lv_label_create(wifi_config_btn);
+    lv_label_set_text(wifi_config_label, "CONFIG WIFI");
+    lv_obj_set_style_text_color(wifi_config_label, COLOR_DARK, 0);
+    lv_obj_set_style_text_font(wifi_config_label, &lv_font_montserrat_14, 0);
+    lv_obj_center(wifi_config_label);
+
+    lv_obj_align_to(wifi_config_btn, data_panel, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
+
+    // Botón para reconectar WiFi y MQTT
+    lv_obj_t *reconnect_btn = lv_button_create(bg);
+    lv_obj_set_size(reconnect_btn, 180, 30);
+    lv_obj_add_event_cb(reconnect_btn, event_handler_reconnect, LV_EVENT_CLICKED, NULL);
+    lv_obj_set_style_bg_color(reconnect_btn, COLOR_SECONDARY, 0);
+    lv_obj_set_style_radius(reconnect_btn, 16, 0);
+    lv_obj_set_style_shadow_color(reconnect_btn, lv_color_darken(COLOR_SECONDARY, 20), 0);
+    lv_obj_set_style_shadow_width(reconnect_btn, 10, 0);
+    lv_obj_set_style_shadow_ofs_y(reconnect_btn, 1, 0);
+
+    lv_obj_t *reconnect_label = lv_label_create(reconnect_btn);
+    lv_label_set_text(reconnect_label, "RECONECTAR");
+    lv_obj_set_style_text_color(reconnect_label, COLOR_DARK, 0);
+    lv_obj_set_style_text_font(reconnect_label, &lv_font_montserrat_14, 0);
+    lv_obj_center(reconnect_label);
+
+    lv_obj_align_to(reconnect_btn, wifi_config_btn, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
 
     // Subtítulo 1: VALORES AMBIENTALES (sin Agua almac)
     lv_obj_t *sub1 = lv_label_create(data_panel);
@@ -598,9 +662,16 @@ void update_agua_almacenada(float agua) {
 
 void setup() {
     Serial.begin(115200);
-    Serial1.begin(115200, SERIAL_8N1, 27, 22);
+    Serial1.begin(115200, SERIAL_8N1, 35, 22);  // RX=35 (de AWG TX=4), TX=22 (a AWG RX=0) - GPIO 22 no tiene conflicto
+    delay(100);  // Esperar estabilización UART
     lv_init();
     lv_log_register_print_cb(log_print);
+
+    // Configurar pin del backlight
+    pinMode(TFT_BACKLIGHT_PIN, OUTPUT);
+    digitalWrite(TFT_BACKLIGHT_PIN, HIGH);  // Encender backlight por defecto
+    backlightOn = true;
+    lastActivityTime = millis();
 
     touchscreenSPI.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
     touchscreen.begin(touchscreenSPI);
@@ -627,7 +698,7 @@ void loop() {
     static char buffer[256];
     static size_t buf_idx = 0;
     const size_t BUF_MAX = sizeof(buffer) - 1;
-    const int MAX_BYTES_PER_LOOP = 64; // limitar bytes procesados por iteración para mantener la UI responsiva
+    const int MAX_BYTES_PER_LOOP = 256; // limitar bytes procesados por iteración para mantener la UI responsiva
     int processed = 0;
 
     while (Serial1.available() && processed < MAX_BYTES_PER_LOOP) {
@@ -651,6 +722,9 @@ void loop() {
                 if (endptr != &msg[2]) {
                     update_agua_almacenada(agua);
                 }
+            }
+            // Mensaje de inicialización desde AWG
+            else if (strncmp(msg, "AWG_INIT:", 9) == 0) {
             }
             // Mensajes de estado o control desde AWG: MODE:, COMP:, VENT:, PUMP:, CTRL:
             else if (strncmp(msg, "MODE:", 5) == 0) {
@@ -761,6 +835,24 @@ void loop() {
             else if (strncmp(msg, "CTRL:", 5) == 0) {
                 // Mensaje de control recibido - no se imprime para evitar interferencia UART
             }
+            else if (strncmp(msg, "BACKLIGHT:", 10) == 0) {
+                char *state = msg + 10;
+                while (*state == ' ' || *state == '\t') state++;
+                if (strstr(state, "ON") != NULL) {
+                    digitalWrite(TFT_BACKLIGHT_PIN, HIGH);
+                    backlightOn = true;
+                    lastActivityTime = millis();
+                } else if (strstr(state, "OFF") != NULL) {
+                    digitalWrite(TFT_BACKLIGHT_PIN, LOW);
+                    backlightOn = false;
+                }
+            }
+            else if (strncmp(msg, "SCREEN_TIMEOUT:", 15) == 0) {
+                char *timeoutStr = msg + 15;
+                while (*timeoutStr == ' ' || *timeoutStr == '\t') timeoutStr++;
+                screenTimeoutSec = atoi(timeoutStr);
+                lastActivityTime = millis();  // Reset timer al cambiar configuración
+            }
             // Mensaje CSV completo (valores)
             else if (buf_idx > 0) {
                 float vals[18];
@@ -807,6 +899,16 @@ void loop() {
             }
         }
     }
+    // Gestionar timeout del backlight
+    unsigned long currentTime = millis();
+    if (screenTimeoutSec > 0 && backlightOn) {
+        if (currentTime - lastActivityTime >= (unsigned long)screenTimeoutSec * 1000UL) {
+            digitalWrite(TFT_BACKLIGHT_PIN, LOW);
+            backlightOn = false;
+            Serial.println("BACKLIGHT:OFF");  // Notificar al ESP32
+        }
+    }
+
     // Procesar la UI frecuentemente para evitar "pegados"
     lv_task_handler();
     lv_tick_inc(5);

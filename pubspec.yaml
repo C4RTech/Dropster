@@ -1,6 +1,5 @@
 name: dropster
 description: "Sistema de control y monitoreo de generadores de agua atmosférica (AWG) con conectividad MQTT y interfaz móvil Flutter"
-author: Carlos Guedez <carlosguedez7323@gmail.com>
 homepage: https://github.com/C4RTech/Dropster
 repository: https://github.com/C4RTech/Dropster
 issue_tracker: https://github.com/C4RTech/Dropster/issues
@@ -34,6 +33,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_background_service: ^5.1.0
   path_provider: ^2.1.0
   fl_chart: ^0.63.0
   cupertino_icons: ^1.0.8
@@ -50,6 +50,7 @@ dependencies:
   flutter_local_notifications: ^17.2.0
   connectivity_plus: ^6.0.3
   android_alarm_manager_plus: ^4.0.0
+  flutter_secure_storage: ^8.0.0
 
 dev_dependencies:
   flutter_test:

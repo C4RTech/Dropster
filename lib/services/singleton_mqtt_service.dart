@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'mqtt_hive.dart';
 import 'mqtt_service.dart';
 
@@ -40,22 +41,22 @@ class SingletonMqttService {
 
   /// Conecta al broker usando el servicio MQTT y el servicio Hive para guardar datos
   Future<void> connect() async {
-    print('[MQTT DEBUG] Iniciando conexión MQTT desde Singleton');
+    debugPrint('[MQTT DEBUG] Iniciando conexión MQTT desde Singleton');
 
     // Asegurar que Hive esté inicializado antes de conectar
-    print('[MQTT DEBUG] Inicializando Hive...');
+    debugPrint('[MQTT DEBUG] Inicializando Hive...');
     await MqttHiveService.initHive();
-    print('[MQTT DEBUG] Hive inicializado correctamente');
+    debugPrint('[MQTT DEBUG] Hive inicializado correctamente');
 
     await mqttClientService.connect(mqttService);
-    print(
+    debugPrint(
         '[MQTT DEBUG] Conexión MQTT completada, estado: ${mqttClientService.isConnected}');
 
     // Mostrar configuración de conexión
-    print('[MQTT DEBUG] Configuración MQTT:');
-    print('[MQTT DEBUG]   - Broker: ${mqttClientService.broker}');
-    print('[MQTT DEBUG]   - Puerto: ${mqttClientService.port}');
-    print('[MQTT DEBUG]   - Tópico: ${mqttClientService.topic}');
+    debugPrint('[MQTT DEBUG] Configuración MQTT:');
+    debugPrint('[MQTT DEBUG]   - Broker: ${mqttClientService.broker}');
+    debugPrint('[MQTT DEBUG]   - Puerto: ${mqttClientService.port}');
+    debugPrint('[MQTT DEBUG]   - Tópico: ${mqttClientService.topic}');
 
     // Actualizar estado de conexión
     connectionNotifier.value = mqttClientService.isConnected;
@@ -67,11 +68,11 @@ class SingletonMqttService {
     _startConnectionStatusMonitoring();
 
     // Agregar listener para debug de mensajes MQTT
-    print('[MQTT DEBUG] Agregando listener para debug de mensajes MQTT');
+    debugPrint('[MQTT DEBUG] Agregando listener para debug de mensajes MQTT');
     notifier.addListener(() {
       final data = notifier.value;
       if (data.containsKey('energia')) {
-        print(
+        debugPrint(
             '[MQTT LISTENER DEBUG] Energía actualizada en notifier: ${data['energia']}kWh');
       }
     });
@@ -123,7 +124,7 @@ class SingletonMqttService {
 
   /// Método de debug para simular recepción de datos MQTT (para testing)
   void simulateMqttData() {
-    print('[MQTT SIMULATION] Simulando recepción de datos MQTT...');
+    debugPrint('[MQTT SIMULATION] Simulando recepción de datos MQTT...');
 
     final simulatedData = {
       'temperaturaAmbiente': 25.5,
@@ -137,11 +138,11 @@ class SingletonMqttService {
       'source': 'MQTT_SIMULATION'
     };
 
-    print('[MQTT SIMULATION] Datos simulados: $simulatedData');
+    debugPrint('[MQTT SIMULATION] Datos simulados: $simulatedData');
 
     // Actualizar el notifier como si viniera de MQTT
     notifier.value = {...notifier.value, ...simulatedData};
 
-    print('[MQTT SIMULATION] ✅ Datos simulados enviados al notifier');
+    debugPrint('[MQTT SIMULATION] ✅ Datos simulados enviados al notifier');
   }
 }

@@ -10,14 +10,14 @@ class DropsterAnimatedSymbol extends StatefulWidget {
   final VoidCallback? onTap;
 
   const DropsterAnimatedSymbol({
-    Key? key,
+    super.key,
     required this.value,
     this.size = 140,
     this.primaryColor,
     this.secondaryColor,
     this.animationDuration = const Duration(milliseconds: 800),
     this.onTap,
-  }) : super(key: key);
+  });
 
   @override
   State<DropsterAnimatedSymbol> createState() => _DropsterAnimatedSymbolState();
@@ -96,7 +96,7 @@ class _DropsterAnimatedSymbolState extends State<DropsterAnimatedSymbol>
       child: AnimatedBuilder(
         animation: _controller,
         builder: (context, child) {
-          return Container(
+          return SizedBox(
             width: widget.size,
             height: widget.size,
             child: Stack(

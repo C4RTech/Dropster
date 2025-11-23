@@ -9,6 +9,9 @@ import 'package:dropster/screens/info_screen.dart';
 import 'package:path_provider/path_provider.dart';
 import 'services/mqtt_hive.dart';
 import 'services/singleton_mqtt_service.dart';
+import 'services/background_service.dart';
+import 'services/background_mqtt_service.dart';
+import 'dart:io' show Platform;
 import 'services/notification_service.dart';
 import 'services/app_lifecycle_service.dart';
 import 'services/daily_report_service.dart';
@@ -18,7 +21,7 @@ void main() {
 }
 
 class DropsterApp extends StatelessWidget {
-  const DropsterApp({Key? key}) : super(key: key);
+  const DropsterApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -28,11 +31,9 @@ class DropsterApp extends StatelessWidget {
         colorScheme: ColorScheme.light(
           primary: Color(0xFF155263),
           secondary: Color(0xFF00CFC8),
-          background: Color(0xFFE8F5E8),
           surface: Colors.white,
           onPrimary: Colors.white,
           onSecondary: Color(0xFF155263),
-          onBackground: Color(0xFF155263),
           onSurface: Color(0xFF155263),
         ),
         scaffoldBackgroundColor: Color(0xFFE8F5E8),
@@ -48,11 +49,9 @@ class DropsterApp extends StatelessWidget {
         colorScheme: ColorScheme.dark(
           primary: Color(0xFF155263),
           secondary: Color(0xFF00CFC8),
-          background: Color(0xFF0c2f39),
           surface: Color(0xFF1e758d),
           onPrimary: Colors.white,
           onSecondary: Colors.white,
-          onBackground: Colors.white,
           onSurface: Colors.white,
         ),
         scaffoldBackgroundColor: Color(0xFF0c2f39),
@@ -72,7 +71,7 @@ class DropsterApp extends StatelessWidget {
 }
 
 class LoaderScreen extends StatefulWidget {
-  const LoaderScreen({Key? key}) : super(key: key);
+  const LoaderScreen({super.key});
 
   @override
   State<LoaderScreen> createState() => _LoaderScreenState();
@@ -185,6 +184,20 @@ class _LoaderScreenState extends State<LoaderScreen>
       await Future.delayed(const Duration(milliseconds: 800));
 
       print('[APP INIT] Inicialización básica completada');
+
+      // Iniciar servicio de background en Android para mantener MQTT 24/7
+      try {
+        if (Platform.isAndroid) {
+          print('[APP INIT] Iniciando servicio foreground (Android)');
+          await BackgroundServiceManager().initializeMinimalForegroundService();
+          // También inicializar el servicio MQTT para foreground (app) para que tenga su propia instancia
+          await BackgroundMqttService().initialize();
+          print(
+              '[APP INIT] Servicio background iniciado y MQTT inicializado en background');
+        }
+      } catch (e) {
+        print('[APP INIT] Error iniciando servicio background: $e');
+      }
 
       setState(() {
         _initialized = true;
@@ -367,7 +380,7 @@ class _LoaderScreenState extends State<LoaderScreen>
 }
 
 class MainScreen extends StatefulWidget {
-  const MainScreen({Key? key}) : super(key: key);
+  const MainScreen({super.key});
 
   @override
   State<MainScreen> createState() => _MainScreenState();

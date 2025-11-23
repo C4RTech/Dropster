@@ -1,6 +1,5 @@
 import 'dart:async';
-import 'dart:io';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:path_provider/path_provider.dart';
 import 'mqtt_service.dart';
@@ -40,9 +39,9 @@ class BackgroundMqttService {
       _startPeriodicTasks();
 
       _isInitialized = true;
-      print('[BACKGROUND] Servicio de background MQTT inicializado');
+      debugPrint('[BACKGROUND] Servicio de background MQTT inicializado');
     } catch (e) {
-      print('[BACKGROUND] Error inicializando servicio de background: $e');
+      debugPrint('[BACKGROUND] Error inicializando servicio de background: $e');
     }
   }
 
@@ -55,9 +54,9 @@ class BackgroundMqttService {
       // Conectar inicialmente
       await _mqttService!.connect(null);
 
-      print('[BACKGROUND] Servicio MQTT inicializado');
+      debugPrint('[BACKGROUND] Servicio MQTT inicializado');
     } catch (e) {
-      print('[BACKGROUND] Error inicializando MQTT: $e');
+      debugPrint('[BACKGROUND] Error inicializando MQTT: $e');
     }
   }
 
@@ -102,11 +101,11 @@ class BackgroundMqttService {
       }
 
       if (!(_mqttService?.isConnected ?? false)) {
-        print('[BACKGROUND] Reconectando MQTT...');
+        debugPrint('[BACKGROUND] Reconectando MQTT...');
         await _mqttService?.connect(null);
       }
     } catch (e) {
-      print('[BACKGROUND] Error asegurando conexión MQTT: $e');
+      debugPrint('[BACKGROUND] Error asegurando conexión MQTT: $e');
     }
   }
 
@@ -115,19 +114,20 @@ class BackgroundMqttService {
     try {
       // Verificar conexión MQTT
       if (!(_mqttService?.isConnected ?? false)) {
-        print('[HEALTH CHECK] MQTT desconectado, intentando reconectar...');
+        debugPrint(
+            '[HEALTH CHECK] MQTT desconectado, intentando reconectar...');
         await _ensureMqttConnection();
       }
 
       // Verificar que Hive esté funcionando
       if (!Hive.isBoxOpen('energyData')) {
-        print('[HEALTH CHECK] Reinicializando Hive...');
+        debugPrint('[HEALTH CHECK] Reinicializando Hive...');
         await MqttHiveService.initHive();
       }
 
-      print('[HEALTH CHECK] Verificación completada exitosamente');
+      debugPrint('[HEALTH CHECK] Verificación completada exitosamente');
     } catch (e) {
-      print('[HEALTH CHECK] Error en verificación de salud: $e');
+      debugPrint('[HEALTH CHECK] Error en verificación de salud: $e');
     }
   }
 
@@ -149,7 +149,7 @@ class BackgroundMqttService {
       }).toList();
 
       if (dayData.isEmpty) {
-        print('[DAILY REPORT] No hay datos para generar reporte');
+        debugPrint('[DAILY REPORT] No hay datos para generar reporte');
         return;
       }
 
@@ -180,10 +180,10 @@ class BackgroundMqttService {
 
       await reportBox.put(today.millisecondsSinceEpoch.toString(), report);
 
-      print(
+      debugPrint(
           '[DAILY REPORT] Reporte generado: ${totalEnergy.toStringAsFixed(2)} kWh, ${totalWater.toStringAsFixed(2)} L');
     } catch (e) {
-      print('[DAILY REPORT] Error generando reporte: $e');
+      debugPrint('[DAILY REPORT] Error generando reporte: $e');
     }
   }
 
@@ -199,7 +199,7 @@ class BackgroundMqttService {
   /// Configura el modo background/foreground
   void setBackgroundMode(bool isBackground) {
     _isInBackground = isBackground;
-    print('[BACKGROUND] Modo background: $isBackground');
+    debugPrint('[BACKGROUND] Modo background: $isBackground');
 
     // Ajustar frecuencia de verificaciones según el modo
     if (isBackground) {

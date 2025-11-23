@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 class InfoScreen extends StatelessWidget {
+  const InfoScreen({super.key});
+
   void _showHelpDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -100,7 +102,7 @@ class InfoScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final colorPrimary = Theme.of(context).colorScheme.primary;
     final colorAccent = Theme.of(context).colorScheme.secondary;
-    final colorText = Theme.of(context).colorScheme.onBackground;
+    final colorText = Theme.of(context).colorScheme.onSurface;
 
     return Scaffold(
       appBar: AppBar(

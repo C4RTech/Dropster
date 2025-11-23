@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../services/singleton_mqtt_service.dart';
 import '../services/mqtt_hive.dart';
-import '../services/mqtt_service.dart';
+// mqtt_service is not directly used here; singleton is used instead
 import '../widgets/dropster_animated_symbol.dart';
 import 'dart:async';
-import 'package:provider/provider.dart';
+// provider is not used in this screen
 
 /// Pantalla principal que muestra datos eléctricos en tiempo real,
 /// permite configurar valores nominales y detecta anomalías.
@@ -53,7 +53,7 @@ class _HomeScreenState extends State<HomeScreen>
   int pumpState = 0; // 0 = OFF, 1 = ON
   String operationMode =
       'MANUAL'; // 'MANUAL' o 'AUTO' - Iniciar en MANUAL para que los controles funcionen
-  final MqttService _mqttService = MqttService();
+  // MqttService instance not required here (handled by SingletonMqttService)
 
   /// Devuelve el tipo de fuente de datos ("BLE", "MQTT", o vacío)
   String get sourceType {
@@ -77,7 +77,7 @@ class _HomeScreenState extends State<HomeScreen>
     print('[HOME DEBUG] AnimationController creado');
 
     // Función para procesar datos del notifier
-    void _processNotifierData() {
+    void processNotifierData() {
       final data = globalNotifier.value;
       print('[UI DEBUG] Procesando datos del notifier: ${data.keys}');
 
@@ -176,10 +176,10 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     // Escuchar datos MQTT para actualizar nivel de tanque real
-    globalNotifier.addListener(_processNotifierData);
+    globalNotifier.addListener(processNotifierData);
 
     // Procesar datos iniciales inmediatamente
-    _processNotifierData();
+    processNotifierData();
 
     // Escuchar errores de bomba
     _pumpErrorSubscription = SingletonMqttService()
@@ -581,7 +581,7 @@ class _HomeScreenState extends State<HomeScreen>
       String buttonText, IconData icon) {
     final colorPrimary = Theme.of(context).colorScheme.primary;
     final colorAccent = Theme.of(context).colorScheme.secondary;
-    final colorText = Theme.of(context).colorScheme.onBackground;
+    final colorText = Theme.of(context).colorScheme.onSurface;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -656,7 +656,7 @@ class _HomeScreenState extends State<HomeScreen>
       print('[HOME DEBUG] build llamado, _firstLoadDone = $_firstLoadDone');
       final colorPrimary = Theme.of(context).colorScheme.primary;
       final colorAccent = Theme.of(context).colorScheme.secondary;
-      final colorText = Theme.of(context).colorScheme.onBackground;
+      final colorText = Theme.of(context).colorScheme.onSurface;
       print('[HOME DEBUG] Colores obtenidos del tema');
 
       // Obtener el nivel del tanque usando capacidad configurada

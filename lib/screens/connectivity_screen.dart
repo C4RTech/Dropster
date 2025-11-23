@@ -1,11 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import '../services/mqtt_hive.dart';
 import '../services/singleton_mqtt_service.dart';
 
 /// Pantalla de conectividad: permite conectar por MQTT, muestra estado de conexión.
 class ConnectivityScreen extends StatefulWidget {
+  const ConnectivityScreen({super.key});
+
   @override
   _ConnectivityScreenState createState() => _ConnectivityScreenState();
 }
@@ -73,27 +74,6 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
     setState(() {});
   }
 
-  Future<void> _sendCommand(String command) async {
-    try {
-      await SingletonMqttService().mqttClientService.publishCommand(command);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Comando "$command" enviado correctamente'),
-          backgroundColor: Colors.green,
-        ),
-      );
-      print('[UI DEBUG] Comando enviado: $command');
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error enviando comando: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      print('[UI DEBUG] Error enviando comando $command: $e');
-    }
-  }
-
   /// Verifica si tanto la app como el ESP32 están conectados al broker
   bool _isFullyConnected() {
     // La app debe estar conectada al broker
@@ -149,7 +129,6 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final colorPrimary = Theme.of(context).colorScheme.primary;
     final colorAccent = Theme.of(context).colorScheme.secondary;
     return Scaffold(
       appBar: AppBar(
@@ -246,10 +225,6 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
                                       onPressed: isConnected || isConnecting
                                           ? null
                                           : _connectMQTT,
-                                      child: isConnecting
-                                          ? CircularProgressIndicator(
-                                              color: Colors.white)
-                                          : Text('Conectar MQTT'),
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: colorAccent,
                                         foregroundColor: Colors.white,
@@ -257,6 +232,10 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
                                             borderRadius:
                                                 BorderRadius.circular(20)),
                                       ),
+                                      child: isConnecting
+                                          ? CircularProgressIndicator(
+                                              color: Colors.white)
+                                          : Text('Conectar MQTT'),
                                     );
                                   },
                                 ),
@@ -269,7 +248,6 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
                                     return ElevatedButton(
                                       onPressed:
                                           isConnected ? _disconnectMQTT : null,
-                                      child: Text('Desconectar'),
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: Colors.grey,
                                         foregroundColor: Colors.white,
@@ -277,6 +255,7 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
                                             borderRadius:
                                                 BorderRadius.circular(20)),
                                       ),
+                                      child: Text('Desconectar'),
                                     );
                                   },
                                 ),

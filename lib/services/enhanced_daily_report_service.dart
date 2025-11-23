@@ -343,8 +343,9 @@ class EnhancedDailyReportService {
 
     if (!isRealData) return 'Sin datos del día';
     if (efficiency <= 0) return 'Sistema inactivo';
-    if (efficiency < 15 && compressorRuntime > 30)
+    if (efficiency < 15 && compressorRuntime > 30) {
       return 'Funcionamiento óptimo';
+    }
     if (efficiency < 20) return 'Funcionamiento normal';
     if (compressorRuntime < 20) return 'Bajo uso';
     return 'Funcionamiento regular';
@@ -407,8 +408,8 @@ El sistema no registró actividad durante este período. Verifica la conexión y
 
 ⚡ Energía: ${energy.toStringAsFixed(1)} Wh
 💧 Agua: ${water.toStringAsFixed(1)} L
-📈 Eficiencia: ${efficiency.toStringAsFixed(1)} Wh/L (${efficiencyRating})
-🔧 Estado: ${systemStatus}
+📈 Eficiencia: ${efficiency.toStringAsFixed(1)} Wh/L ($efficiencyRating)
+🔧 Estado: $systemStatus
 
 ${_getStatusEmoji(systemStatus)} ${_getStatusMessage(systemStatus)}''';
   }

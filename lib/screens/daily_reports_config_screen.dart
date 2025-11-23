@@ -4,7 +4,7 @@ import 'package:intl/intl.dart';
 import '../services/enhanced_daily_report_service.dart';
 
 class DailyReportsConfigScreen extends StatefulWidget {
-  const DailyReportsConfigScreen({Key? key}) : super(key: key);
+  const DailyReportsConfigScreen({super.key});
 
   @override
   State<DailyReportsConfigScreen> createState() => _DailyReportsConfigScreenState();
@@ -264,7 +264,7 @@ class _DailyReportsConfigScreenState extends State<DailyReportsConfigScreen> {
               const SizedBox(height: 8),
               ListTile(
                 title: const Text('Hora del reporte'),
-                subtitle: Text('${_reportTime.format(context)}'),
+                subtitle: Text(_reportTime.format(context)),
                 trailing: const Icon(Icons.access_time),
                 onTap: _selectTime,
               ),

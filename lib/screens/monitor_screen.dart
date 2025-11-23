@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/singleton_mqtt_service.dart';
 
 class MonitorScreen extends StatefulWidget {
-  const MonitorScreen({Key? key}) : super(key: key);
+  const MonitorScreen({super.key});
 
   @override
   State<MonitorScreen> createState() => _MonitorScreenState();
@@ -100,7 +100,7 @@ class _MonitorScreenState extends State<MonitorScreen>
           // Log detallado para valores eléctricos
           if (isElectrical) {
             print(
-                '[MONITOR ${key.toUpperCase()} DEBUG] ⚡ ${key}: ${doubleValue} (tipo: ${value.runtimeType}) - TIEMPO REAL');
+                '[MONITOR ${key.toUpperCase()} DEBUG] ⚡ $key: $doubleValue (tipo: ${value.runtimeType}) - TIEMPO REAL');
           }
           return doubleValue;
         } else if (value is String) {
@@ -108,7 +108,7 @@ class _MonitorScreenState extends State<MonitorScreen>
           if (parsed != null) {
             if (isElectrical) {
               print(
-                  '[MONITOR ${key.toUpperCase()} DEBUG] ⚡ ${key} como string: $value -> $parsed - TIEMPO REAL');
+                  '[MONITOR ${key.toUpperCase()} DEBUG] ⚡ $key como string: $value -> $parsed - TIEMPO REAL');
             }
             return parsed;
           }
@@ -119,7 +119,7 @@ class _MonitorScreenState extends State<MonitorScreen>
     // Si no hay datos reales, mostrar 0.0 (no valores por defecto)
     if (isElectrical) {
       print(
-          '[MONITOR ${key.toUpperCase()} DEBUG] ⚡ ${key} NO hay datos reales, mostrando 0.0');
+          '[MONITOR ${key.toUpperCase()} DEBUG] ⚡ $key NO hay datos reales, mostrando 0.0');
     }
     return 0.0;
   }
@@ -141,10 +141,10 @@ class _MonitorScreenState extends State<MonitorScreen>
       actualDecimals =
           3; // Mostrar 3 decimales para valores pequeños de energía
       print(
-          '[MONITOR ENERGIA] Valor pequeño detectado: ${value}Wh, usando ${actualDecimals} decimales');
+          '[MONITOR ENERGIA] Valor pequeño detectado: ${value}Wh, usando $actualDecimals decimales');
     }
 
-    print('[MONITOR TIEMPO REAL] ${unit}: ${value}');
+    print('[MONITOR TIEMPO REAL] $unit: $value');
     return '${value.toStringAsFixed(actualDecimals)} $unit';
   }
 

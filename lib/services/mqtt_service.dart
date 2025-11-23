@@ -8,6 +8,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'mqtt_hive.dart';
 import 'notification_service.dart';
 import 'singleton_mqtt_service.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// Servicio encargado de la comunicación MQTT con el broker y de recibir los datos de energía.
 /// Se encarga de conectar, suscribirse al tópico y pasar los datos recibidos a MqttHiveService.
@@ -16,8 +17,15 @@ class MqttService {
   String broker = "test.mosquitto.org"; // Broker por defecto (Mosquitto)
   int port = 1883;
   String topic = "dropster/data"; // Topic por defecto
+  // Opciones de seguridad y autenticación
+  bool useTls = false;
+  String mqttUser = '';
+  String mqttPass = '';
 
   // Solo usar test.mosquitto.org - sin brokers alternativos
+
+  // Secure storage for sensitive credentials
+  final FlutterSecureStorage _secureStorage = FlutterSecureStorage();
 
   MqttServerClient? client;
   Timer? _reconnectTimer;
@@ -60,14 +68,15 @@ class MqttService {
   /// Inicia el monitoreo de conexión para reconexión automática
   void startConnectionMonitoring() {
     _connectionCheckTimer = Timer.periodic(_connectionCheckInterval, (_) {
-      print(
+      debugPrint(
           '[MQTT STATUS] Estado de conexión: ${isConnected ? 'CONECTADO' : 'DESCONECTADO'}');
-      print('[MQTT STATUS] Broker: $broker:$port');
-      print('[MQTT STATUS] Topic: $topic');
-      print('[MQTT STATUS] Último mensaje: ${_lastMessageTime ?? 'Nunca'}');
+      debugPrint('[MQTT STATUS] Broker: $broker:$port');
+      debugPrint('[MQTT STATUS] Topic: $topic');
+      debugPrint(
+          '[MQTT STATUS] Último mensaje: ${_lastMessageTime ?? 'Nunca'}');
 
       if (!isConnected && !_isReconnecting) {
-        print('[MQTT DEBUG] Conexión perdida, intentando reconectar...');
+        debugPrint('[MQTT DEBUG] Conexión perdida, intentando reconectar...');
         _attemptReconnect();
       }
     });
@@ -104,7 +113,7 @@ class MqttService {
 
         if (timeSinceLastMessage > 120) {
           // 2 minutos sin mensajes
-          print(
+          debugPrint(
               '[MQTT DEBUG] Sin actividad por ${timeSinceLastMessage}s, verificando conexión...');
           // Forzar verificación de conexión
           _checkConnectionHealth();
@@ -112,7 +121,7 @@ class MqttService {
 
         // Log de estado de conexión cada 5 minutos
         if (timeSinceLastConnection > 0 && timeSinceLastConnection % 5 == 0) {
-          print(
+          debugPrint(
               '[MQTT DEBUG] 📊 Estado conexión: ${timeSinceLastConnection}min activa, último mensaje: ${timeSinceLastMessage}s');
         }
       }
@@ -128,14 +137,14 @@ class MqttService {
   /// Verifica la salud de la conexión
   void _checkConnectionHealth() {
     if (!isConnected) {
-      print(
+      debugPrint(
           '[MQTT DEBUG] Conexión detectada como perdida, intentando reconectar...');
       _attemptReconnect();
     } else {
       final now = DateTime.now();
       final timeSinceLastPing =
           _lastPingTime != null ? now.difference(_lastPingTime!).inSeconds : 0;
-      print(
+      debugPrint(
           '[MQTT DEBUG] Conexión saludable (último ping: ${timeSinceLastPing}s)');
     }
   }
@@ -145,11 +154,12 @@ class MqttService {
     if (_isInBackground != isBackground) {
       _isInBackground = isBackground;
       if (isBackground) {
-        print('[MQTT DEBUG] App en background - ajustando configuración');
+        debugPrint('[MQTT DEBUG] App en background - ajustando configuración');
         _stopActivityMonitoring();
         _startActivityMonitoring(); // Reinicia con intervalo de background
       } else {
-        print('[MQTT DEBUG] App en foreground - optimizando configuración');
+        debugPrint(
+            '[MQTT DEBUG] App en foreground - optimizando configuración');
         _stopActivityMonitoring();
         _startActivityMonitoring(); // Reinicia con intervalo normal
       }
@@ -162,7 +172,7 @@ class MqttService {
 
     _reconnectAttempts++;
     if (_reconnectAttempts > _maxReconnectAttempts) {
-      print(
+      debugPrint(
           '[MQTT DEBUG] Máximo número de intentos de reconexión alcanzado ($_maxReconnectAttempts)');
       _isReconnecting = false;
       _reconnectAttempts = 0;
@@ -171,13 +181,13 @@ class MqttService {
     }
 
     _isReconnecting = true;
-    print(
+    debugPrint(
         '[MQTT DEBUG] 🔄 Intentando reconexión (intento $_reconnectAttempts/$_maxReconnectAttempts)');
 
     try {
       // Intentar conectar con timeout
       await connect(null).timeout(_connectionTimeout);
-      print('[MQTT DEBUG] ✅ Reconexión exitosa');
+      debugPrint('[MQTT DEBUG] ✅ Reconexión exitosa');
       _isReconnecting = false;
       _reconnectAttempts = 0; // Reset contador en éxito
       _lastSuccessfulConnection = DateTime.now();
@@ -196,9 +206,10 @@ class MqttService {
               .clamp(0, maxDelay.inMilliseconds)
               .round());
 
-      print(
+      debugPrint(
           '[MQTT DEBUG] ❌ Reconexión fallida (intento $_reconnectAttempts/$_maxReconnectAttempts): $e');
-      print('[MQTT DEBUG] ⏰ Reintentando en ${delay.inSeconds}s (con jitter)');
+      debugPrint(
+          '[MQTT DEBUG] ⏰ Reintentando en ${delay.inSeconds}s (con jitter)');
 
       _notifyConnectionStatus();
       _reconnectTimer = Timer(delay, () {
@@ -226,17 +237,37 @@ class MqttService {
           settingsBox.get('mqttBroker', defaultValue: 'test.mosquitto.org');
       port = settingsBox.get('mqttPort', defaultValue: 1883);
       topic = settingsBox.get('mqttTopic', defaultValue: 'dropster/data');
+      useTls = settingsBox.get('mqttUseTls', defaultValue: false);
+      // Credentials must be stored in secure storage for safety
+      mqttUser = await _secureStorage.read(key: 'mqttUser') ?? '';
+      mqttPass = await _secureStorage.read(key: 'mqttPass') ?? '';
 
-      print('[MQTT DEBUG] Configuración cargada: $broker:$port, topic: $topic');
+      debugPrint(
+          '[MQTT DEBUG] Configuración cargada: $broker:$port, topic: $topic');
     } catch (e) {
-      print('[MQTT DEBUG] Error cargando configuración MQTT: $e');
+      debugPrint('[MQTT DEBUG] Error cargando configuración MQTT: $e');
       // Mantener valores por defecto
+    }
+  }
+
+  /// Guarda las credenciales MQTT en almacenamiento seguro
+  Future<void> saveCredentials(
+      {required String user, required String pass}) async {
+    try {
+      await _secureStorage.write(key: 'mqttUser', value: user);
+      await _secureStorage.write(key: 'mqttPass', value: pass);
+      mqttUser = user;
+      mqttPass = pass;
+      debugPrint(
+          '[MQTT DEBUG] Credenciales guardadas en almacenamiento seguro');
+    } catch (e) {
+      debugPrint('[MQTT DEBUG] Error guardando credenciales seguras: $e');
     }
   }
 
   /// Reconecta con nueva configuración (desconecta y conecta nuevamente)
   Future<void> reconnectWithNewConfig(MqttHiveService? hiveService) async {
-    print('[MQTT DEBUG] Reconectando con nueva configuración...');
+    debugPrint('[MQTT DEBUG] Reconectando con nueva configuración...');
 
     // Desconectar si está conectado
     if (isConnected) {
@@ -257,17 +288,17 @@ class MqttService {
     await loadConfiguration();
 
     if (client != null && isConnected) {
-      print('[MQTT DEBUG] Ya conectado al broker $broker:$port');
+      debugPrint('[MQTT DEBUG] Ya conectado al broker $broker:$port');
       return;
     }
 
     // Verificar conectividad de red antes de intentar MQTT
-    print('[MQTT DEBUG] Verificando conectividad de red...');
+    debugPrint('[MQTT DEBUG] Verificando conectividad de red...');
     try {
       await _testNetworkConnectivity();
-      print('[MQTT DEBUG] Conectividad de red OK');
+      debugPrint('[MQTT DEBUG] Conectividad de red OK');
     } catch (e) {
-      print('[MQTT DEBUG] Error de conectividad de red: $e');
+      debugPrint('[MQTT DEBUG] Error de conectividad de red: $e');
       throw Exception('No hay conectividad de red disponible');
     }
 
@@ -284,19 +315,19 @@ class MqttService {
   Future<void> _testNetworkConnectivity() async {
     // Intentar resolver un host público para validar conectividad de red.
     // Evitar paquetes extra; usar lookup con timeout.
-    print('[MQTT DEBUG] Probando conectividad (lookup google.com)...');
+    debugPrint('[MQTT DEBUG] Probando conectividad (lookup google.com)...');
     try {
       final result = await InternetAddress.lookup('google.com')
           .timeout(const Duration(seconds: 5));
       if (result.isEmpty || result[0].rawAddress.isEmpty) {
         throw Exception('Lookup regresó vacío');
       }
-      print('[MQTT DEBUG] Conectividad de red OK: ${result[0].address}');
+      debugPrint('[MQTT DEBUG] Conectividad de red OK: ${result[0].address}');
     } on TimeoutException catch (e) {
-      print('[MQTT DEBUG] Timeout en verificación de red: $e');
+      debugPrint('[MQTT DEBUG] Timeout en verificación de red: $e');
       throw Exception('Timeout verificando conectividad');
     } catch (e) {
-      print('[MQTT DEBUG] Error de conectividad de red: $e');
+      debugPrint('[MQTT DEBUG] Error de conectividad de red: $e');
       throw Exception('No hay conectividad de red disponible');
     }
   }
@@ -304,7 +335,7 @@ class MqttService {
   /// Intenta conectar a un broker específico
   Future<bool> _tryConnect(String brokerAddress, int brokerPort,
       MqttHiveService? hiveService) async {
-    print(
+    debugPrint(
         '[MQTT DEBUG] 🔗 Intentando conectar a $brokerAddress:$brokerPort en tópico $topic');
 
     try {
@@ -317,6 +348,13 @@ class MqttService {
       client = MqttServerClient(brokerAddress, '');
       client!.port = brokerPort;
       client!.logging(on: false);
+
+      // Configurar TLS si está habilitado en settings
+      try {
+        client!.secure = useTls;
+      } catch (_) {
+        // Algunas versiones no exponen secure; ignore si no está disponible
+      }
 
       // Configuración optimizada para estabilidad
       client!.keepAlivePeriod = 60; // 60 segundos
@@ -334,18 +372,31 @@ class MqttService {
           .withWillQos(MqttQos.atLeastOnce)
           .startClean();
 
-      print(
+      debugPrint(
           '[MQTT DEBUG] ⏱️ Iniciando conexión con timeout de ${_connectionTimeout.inSeconds}s...');
 
-      await client!.connect().timeout(
-        _connectionTimeout,
-        onTimeout: () {
-          print(
-              '[MQTT DEBUG] ⏰ Timeout en conexión al broker $brokerAddress:$brokerPort');
-          throw TimeoutException(
-              'Connection timeout after ${_connectionTimeout.inSeconds}s');
-        },
-      );
+      // Si hay usuario definido, usar autenticación
+      if (mqttUser.isNotEmpty) {
+        await client!.connect(mqttUser, mqttPass).timeout(
+          _connectionTimeout,
+          onTimeout: () {
+            debugPrint(
+                '[MQTT DEBUG] ⏰ Timeout en conexión al broker $brokerAddress:$brokerPort');
+            throw TimeoutException(
+                'Connection timeout after ${_connectionTimeout.inSeconds}s');
+          },
+        );
+      } else {
+        await client!.connect().timeout(
+          _connectionTimeout,
+          onTimeout: () {
+            debugPrint(
+                '[MQTT DEBUG] ⏰ Timeout en conexión al broker $brokerAddress:$brokerPort');
+            throw TimeoutException(
+                'Connection timeout after ${_connectionTimeout.inSeconds}s');
+          },
+        );
+      }
 
       // Verificar que la conexión sea exitosa
       if (client!.connectionStatus?.state != MqttConnectionState.connected) {
@@ -353,9 +404,9 @@ class MqttService {
             'Connection failed: ${client!.connectionStatus?.state}');
       }
 
-      print(
+      debugPrint(
           '[MQTT DEBUG] ✅ Conexión exitosa al broker $brokerAddress:$brokerPort');
-      print('[MQTT DEBUG] 📡 Client ID: $clientId');
+      debugPrint('[MQTT DEBUG] 📡 Client ID: $clientId');
 
       // Configurar listener siempre, pero solo procesar datos si hay hiveService
       _setupMessageListener(hiveService);
@@ -369,7 +420,7 @@ class MqttService {
 
       return true;
     } catch (e) {
-      print(
+      debugPrint(
           '[MQTT DEBUG] ❌ Error al conectar a $brokerAddress:$brokerPort: $e');
       // Limpiar cliente en caso de error
       try {
@@ -387,7 +438,7 @@ class MqttService {
     // Listener para mensajes recibidos en cualquier tópico suscrito
     client!.updates?.listen((List<MqttReceivedMessage<MqttMessage>> c) {
       if (c.isEmpty) {
-        print('[MQTT DEBUG] Lista de mensajes vacía');
+        debugPrint('[MQTT DEBUG] Lista de mensajes vacía');
         return;
       }
 
@@ -399,30 +450,32 @@ class MqttService {
       // Actualizar timestamp del último mensaje
       _lastMessageTime = DateTime.now();
 
-      print('[MQTT DEBUG] Mensaje recibido en tópico $topicReceived: $payload');
+      debugPrint(
+          '[MQTT DEBUG] Mensaje recibido en tópico $topicReceived: $payload');
 
       try {
         // Si el mensaje es del tópico esperado (datos)
         if (topicReceived == topic) {
-          print('[MQTT DEBUG] Procesando mensaje del tópico correcto: $topic');
+          debugPrint(
+              '[MQTT DEBUG] Procesando mensaje del tópico correcto: $topic');
 
           // Si tenemos hiveService, procesar los datos
           if (hiveService != null) {
-            print('[MQTT DEBUG] Llamando a onMqttDataReceived...');
+            debugPrint('[MQTT DEBUG] Llamando a onMqttDataReceived...');
             hiveService.onMqttDataReceived(payload);
-            print('[MQTT DEBUG] Datos procesados por Hive');
+            debugPrint('[MQTT DEBUG] Datos procesados por Hive');
 
             // Procesar datos para notificaciones (en background)
             _processNotificationData(payload);
-            print('[MQTT DEBUG] Notificaciones procesadas');
+            debugPrint('[MQTT DEBUG] Notificaciones procesadas');
           } else {
-            print(
+            debugPrint(
                 '[MQTT DEBUG] ERROR: hiveService es null, no se pueden procesar datos');
           }
         }
         // Si el mensaje viene por el tópico de estado, procesar modo/estado
         else if (topicReceived == 'dropster/status') {
-          print('[MQTT DEBUG] Mensaje de STATUS recibido: $payload');
+          debugPrint('[MQTT DEBUG] Mensaje de STATUS recibido: $payload');
 
           // Procesar confirmación de configuración
           if (payload.contains('"type":"config_ack"')) {
@@ -430,11 +483,12 @@ class MqttService {
               final jsonData = jsonDecode(payload);
               if (jsonData is Map<String, dynamic> &&
                   jsonData['type'] == 'config_ack') {
-                print(
+                debugPrint(
                     '[MQTT CONFIG] ✅ Confirmación de configuración recibida por STATUS: ${jsonData['changes']} cambios aplicados');
-                print('[MQTT CONFIG] 📊 Estado: ${jsonData['status']}');
-                print('[MQTT CONFIG] ⏱️  Timestamp: ${jsonData['timestamp']}');
-                print(
+                debugPrint('[MQTT CONFIG] 📊 Estado: ${jsonData['status']}');
+                debugPrint(
+                    '[MQTT CONFIG] ⏱️  Timestamp: ${jsonData['timestamp']}');
+                debugPrint(
                     '[MQTT CONFIG] 🔋 Uptime ESP32: ${jsonData['uptime']} segundos');
                 // Siempre marcar como config_saved=true independientemente de si hay cambios o no
                 SingletonMqttService().notifier.value = {
@@ -444,7 +498,7 @@ class MqttService {
                 };
               }
             } catch (e) {
-              print(
+              debugPrint(
                   '[MQTT DEBUG] Error procesando confirmación de configuración: $e');
             }
           } else {
@@ -453,14 +507,14 @@ class MqttService {
 
               // Procesar errores de bomba
               if (json.containsKey('type') && json['type'] == 'pump_error') {
-                print('[MQTT DEBUG] Error de bomba recibido: $json');
+                debugPrint('[MQTT DEBUG] Error de bomba recibido: $json');
                 _pumpErrorController.add(json);
                 return; // No procesar otros campos para este mensaje
               }
 
               if (json.containsKey('mode')) {
                 final String mode = json['mode'].toString();
-                print('[MQTT DEBUG] Modo recibido: $mode');
+                debugPrint('[MQTT DEBUG] Modo recibido: $mode');
                 _modeController.add(mode);
                 // Actualizar notifier con el modo
                 SingletonMqttService().notifier.value = {
@@ -565,24 +619,24 @@ class MqttService {
         }
         // Si el mensaje viene por el tópico de alertas, procesar alertas
         else if (topicReceived.contains('/alerts')) {
-          print('[MQTT ALERT] Mensaje de ALERTA recibido: $payload');
+          debugPrint('[MQTT ALERT] Mensaje de ALERTA recibido: $payload');
           _processAlertData(payload);
         }
         // Si el mensaje viene por el tópico de errores, procesar errores
         else if (topicReceived.contains('/errors')) {
-          print('[MQTT ERROR] Mensaje de ERROR recibido: $payload');
+          debugPrint('[MQTT ERROR] Mensaje de ERROR recibido: $payload');
           _processErrorData(payload);
         }
         // Si el mensaje viene por el tópico de sistema, procesar estado del sistema
         else if (topicReceived == 'dropster/system') {
-          print('[MQTT SYSTEM] Mensaje de SISTEMA recibido: $payload');
+          debugPrint('[MQTT SYSTEM] Mensaje de SISTEMA recibido: $payload');
 
           // Procesar backup de configuración desde SYSTEM
           if (payload.startsWith('BACKUP:')) {
             try {
               final jsonStr = payload.substring(7); // Remover "BACKUP:"
               final configData = jsonDecode(jsonStr) as Map<String, dynamic>;
-              print(
+              debugPrint(
                   '[MQTT DEBUG] Backup de configuración recibido por SYSTEM: ${configData.keys}');
               // Actualizar el notifier con el JSON completo del backup (manteniendo la estructura original)
               SingletonMqttService().notifier.value = {
@@ -590,44 +644,44 @@ class MqttService {
                 ...configData, // Expandir el JSON del backup directamente en el notifier
               };
             } catch (e) {
-              print(
+              debugPrint(
                   '[MQTT DEBUG] Error procesando backup de configuración desde SYSTEM: $e');
             }
           } else {
             _processSystemData(payload);
           }
         } else {
-          print(
+          debugPrint(
               '[MQTT DEBUG] Mensaje ignorado - tópico: $topicReceived, esperado: $topic, dropster/status, dropster/alerts, dropster/errors o dropster/system');
         }
       } catch (e) {
-        print('[MQTT DEBUG] Error procesando mensaje MQTT: $e');
+        debugPrint('[MQTT DEBUG] Error procesando mensaje MQTT: $e');
       }
     });
 
     // Se suscribe al tópico de datos de energía con QoS 1 (atLeastOnce) para mayor fiabilidad
     // Nota: Ya se suscribió arriba, aquí solo se registra el log
-    print('[MQTT DEBUG] Suscrito al tópico $topic (QoS 1)');
+    debugPrint('[MQTT DEBUG] Suscrito al tópico $topic (QoS 1)');
 
     // Suscribirse al tópico de datos (principal)
     client!.subscribe(topic, MqttQos.atLeastOnce);
-    print('[MQTT DEBUG] Suscrito al tópico $topic (QoS 1)');
+    debugPrint('[MQTT DEBUG] Suscrito al tópico $topic (QoS 1)');
 
     // Suscribirse al tópico de estado para recibir modo y otros estados
     client!.subscribe('dropster/status', MqttQos.atLeastOnce);
-    print('[MQTT DEBUG] Suscrito al tópico dropster/status (QoS 1)');
+    debugPrint('[MQTT DEBUG] Suscrito al tópico dropster/status (QoS 1)');
 
     // Suscribirse al tópico de alertas para recibir alertas del ESP32
     client!.subscribe('dropster/alerts', MqttQos.atLeastOnce);
-    print('[MQTT DEBUG] Suscrito al tópico dropster/alerts (QoS 1)');
+    debugPrint('[MQTT DEBUG] Suscrito al tópico dropster/alerts (QoS 1)');
 
     // Suscribirse al tópico de errores para recibir mensajes de error del ESP32
     client!.subscribe('dropster/errors', MqttQos.atLeastOnce);
-    print('[MQTT DEBUG] Suscrito al tópico dropster/errors (QoS 1)');
+    debugPrint('[MQTT DEBUG] Suscrito al tópico dropster/errors (QoS 1)');
 
     // Suscribirse al tópico de sistema para recibir estado general y backups del ESP32
     client!.subscribe('dropster/system', MqttQos.atLeastOnce);
-    print('[MQTT DEBUG] Suscrito al tópico dropster/system (QoS 1)');
+    debugPrint('[MQTT DEBUG] Suscrito al tópico dropster/system (QoS 1)');
   }
 
   /// Publica un comando al tópico de control del ESP32
@@ -638,13 +692,14 @@ class MqttService {
         builder.addString(command);
         client!.publishMessage('dropster/control', MqttQos.atLeastOnce,
             builder.payload!); // Topic corregido, usar QoS 1 para fiabilidad
-        print('[MQTT DEBUG] Comando enviado: $command');
+        debugPrint('[MQTT DEBUG] Comando enviado: $command');
       } catch (e) {
-        print('[MQTT DEBUG] Error enviando comando: $e');
+        debugPrint('[MQTT DEBUG] Error enviando comando: $e');
         rethrow;
       }
     } else {
-      print('[MQTT DEBUG] No se puede enviar comando: cliente no conectado');
+      debugPrint(
+          '[MQTT DEBUG] No se puede enviar comando: cliente no conectado');
       throw Exception('MQTT client not connected');
     }
   }
@@ -654,7 +709,7 @@ class MqttService {
     // mode = "AUTO" o "MANUAL"
     final cmd = (mode.toUpperCase() == 'AUTO') ? 'MODE AUTO' : 'MODE MANUAL';
     await publishCommand(cmd);
-    print('[MQTT DEBUG] publishMode: $cmd');
+    debugPrint('[MQTT DEBUG] publishMode: $cmd');
   }
 
   /// Enviar configuración MQTT al ESP32
@@ -671,9 +726,9 @@ class MqttService {
       // Enviar como "UPDATE_MQTT_CONFIG" + JSON
       final command = 'UPDATE_MQTT_CONFIG$configJson';
       await publishCommand(command);
-      print('[MQTT DEBUG] Configuración MQTT enviada al ESP32: $command');
+      debugPrint('[MQTT DEBUG] Configuración MQTT enviada al ESP32: $command');
     } catch (e) {
-      print('[MQTT DEBUG] Error enviando configuración MQTT al ESP32: $e');
+      debugPrint('[MQTT DEBUG] Error enviando configuración MQTT al ESP32: $e');
       rethrow;
     }
   }
@@ -708,7 +763,7 @@ class MqttService {
 
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        print(
+        debugPrint(
             '[MQTT CONFIG] Intento $attempt/$maxRetries de enviar configuración al ESP32');
 
         // Función para formatear valores con máximo 2 decimales
@@ -755,23 +810,23 @@ class MqttService {
         };
 
         final fullConfigJson = jsonEncode(configJson);
-        print(
+        debugPrint(
             '[MQTT CONFIG] 📊 JSON abreviado creado - Longitud: ${fullConfigJson.length} caracteres');
 
         // Enviar como "update_config" + JSON (minúsculas como espera el ESP32)
         // DIVIDIR EL MENSAJE EN PARTES MÁS PEQUEÑAS PARA EVITAR TRUNCAMIENTO
         final command = 'update_config$fullConfigJson';
-        print('[MQTT CONFIG] 📤 Comando completo a enviar: "$command"');
-        print(
+        debugPrint('[MQTT CONFIG] 📤 Comando completo a enviar: "$command"');
+        debugPrint(
             '[MQTT CONFIG] 📏 Longitud del comando: ${command.length} caracteres');
 
         // Siempre dividir en partes para consistencia y robustez
-        print(
+        debugPrint(
             '[MQTT CONFIG] 📦 Enviando configuración en partes fragmentadas...');
 
         // Parte 1: MQTT
         final part1 = 'update_config_part1${jsonEncode(configJson['mqtt'])}';
-        print(
+        debugPrint(
             '[MQTT CONFIG] 📤 Parte 1 MQTT: "$part1" (${part1.length} chars)');
 
         final builder1 = MqttClientPayloadBuilder();
@@ -783,7 +838,7 @@ class MqttService {
 
         // Parte 2: Alertas
         final part2 = 'update_config_part2${jsonEncode(configJson['alerts'])}';
-        print(
+        debugPrint(
             '[MQTT CONFIG] 📤 Parte 2 Alertas: "$part2" (${part2.length} chars)');
 
         final builder2 = MqttClientPayloadBuilder();
@@ -795,7 +850,7 @@ class MqttService {
 
         // Parte 3: Control
         final part3 = 'update_config_part3${jsonEncode(configJson['control'])}';
-        print(
+        debugPrint(
             '[MQTT CONFIG] 📤 Parte 3 Control: "$part3" (${part3.length} chars)');
 
         final builder3 = MqttClientPayloadBuilder();
@@ -807,7 +862,7 @@ class MqttService {
 
         // Parte 4: Tanque
         final part4 = 'update_config_part4${jsonEncode(configJson['tank'])}';
-        print(
+        debugPrint(
             '[MQTT CONFIG] 📤 Parte 4 Tanque: "$part4" (${part4.length} chars)');
 
         final builder4 = MqttClientPayloadBuilder();
@@ -819,23 +874,24 @@ class MqttService {
 
         // Comando de ensamblaje
         final finalCmd = 'update_config_assemble';
-        print('[MQTT CONFIG] 📤 Comando ensamblaje: "$finalCmd"');
+        debugPrint('[MQTT CONFIG] 📤 Comando ensamblaje: "$finalCmd"');
 
         final builderFinal = MqttClientPayloadBuilder();
         builderFinal.addString(finalCmd);
         client!.publishMessage(
             'dropster/control', MqttQos.atLeastOnce, builderFinal.payload!);
 
-        print(
+        debugPrint(
             '[MQTT CONFIG] ✅ Configuración enviada al ESP32 (intento $attempt). Esperando confirmación...');
 
         // Esperar confirmación del ESP32 con timeout
         final ackReceived = await _waitForConfigAck(timeout);
         if (ackReceived) {
-          print('[MQTT CONFIG] ✅ Configuración aplicada exitosamente en ESP32');
+          debugPrint(
+              '[MQTT CONFIG] ✅ Configuración aplicada exitosamente en ESP32');
           return; // Éxito, salir del método
         } else {
-          print(
+          debugPrint(
               '[MQTT CONFIG] ❌ No se recibió confirmación del ESP32 en ${timeout.inSeconds}s');
           if (attempt == maxRetries) {
             throw Exception(
@@ -848,7 +904,7 @@ class MqttService {
           await Future.delayed(Duration(seconds: 2));
         }
       } catch (e) {
-        print('[MQTT CONFIG] ❌ Error en intento $attempt: $e');
+        debugPrint('[MQTT CONFIG] ❌ Error en intento $attempt: $e');
         if (attempt == maxRetries) {
           rethrow;
         }
@@ -879,7 +935,7 @@ class MqttService {
             if (jsonData is Map<String, dynamic> &&
                 jsonData['type'] == 'config_ack' &&
                 jsonData['status'] == 'success') {
-              print(
+              debugPrint(
                   '[MQTT CONFIG] 📨 Confirmación recibida del ESP32: $payload');
               completer.complete(true);
               subscription.cancel();
@@ -895,7 +951,7 @@ class MqttService {
 
     // Timeout
     timer = Timer(timeout, () {
-      print('[MQTT CONFIG] ⏰ Timeout esperando confirmación del ESP32');
+      debugPrint('[MQTT CONFIG] ⏰ Timeout esperando confirmación del ESP32');
       completer.complete(false);
       subscription.cancel();
     });
@@ -917,7 +973,7 @@ class MqttService {
         NotificationService().processSensorData(sensorData);
       }
     } catch (e) {
-      print('[MQTT DEBUG] Error procesando datos para notificaciones: $e');
+      debugPrint('[MQTT DEBUG] Error procesando datos para notificaciones: $e');
     }
   }
 
@@ -926,7 +982,7 @@ class MqttService {
     try {
       NotificationService().processAlertData(payload);
     } catch (e) {
-      print('[MQTT DEBUG] Error procesando datos de alerta: $e');
+      debugPrint('[MQTT DEBUG] Error procesando datos de alerta: $e');
     }
   }
 
@@ -936,12 +992,12 @@ class MqttService {
       final jsonData = jsonDecode(payload);
       if (jsonData is Map<String, dynamic> && jsonData.containsKey('type')) {
         if (jsonData['type'] == 'pump_error') {
-          print('[MQTT ERROR] Error de bomba recibido: $jsonData');
+          debugPrint('[MQTT ERROR] Error de bomba recibido: $jsonData');
           _pumpErrorController.add(jsonData);
         }
       }
     } catch (e) {
-      print('[MQTT DEBUG] Error procesando datos de error: $e');
+      debugPrint('[MQTT DEBUG] Error procesando datos de error: $e');
     }
   }
 
@@ -950,15 +1006,15 @@ class MqttService {
     try {
       // Procesar mensajes de estado del sistema (online/offline)
       if (payload.contains('ONLINE')) {
-        print('[MQTT SYSTEM] ESP32 reporta estado ONLINE');
+        debugPrint('[MQTT SYSTEM] ESP32 reporta estado ONLINE');
         // Actualizar notifier con estado de conexión
         SingletonMqttService().connectionNotifier.value = true;
       } else if (payload.contains('OFFLINE')) {
-        print('[MQTT SYSTEM] ESP32 reporta estado OFFLINE');
+        debugPrint('[MQTT SYSTEM] ESP32 reporta estado OFFLINE');
         SingletonMqttService().connectionNotifier.value = false;
       }
     } catch (e) {
-      print('[MQTT DEBUG] Error procesando datos de sistema: $e');
+      debugPrint('[MQTT DEBUG] Error procesando datos de sistema: $e');
     }
   }
 
@@ -987,7 +1043,7 @@ class MqttService {
         return jsonData;
       }
     } catch (e) {
-      print('[MQTT DEBUG] Error parseando JSON: $e');
+      debugPrint('[MQTT DEBUG] Error parseando JSON: $e');
     }
     return null;
   }

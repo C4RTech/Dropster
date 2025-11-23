@@ -11,14 +11,14 @@ class ProfessionalWaterDrop extends StatefulWidget {
   final VoidCallback? onTap;
 
   const ProfessionalWaterDrop({
-    Key? key,
+    super.key,
     required this.value,
     this.size = 140,
     this.primaryColor,
     this.secondaryColor,
     this.animationDuration = const Duration(milliseconds: 1500),
     this.onTap,
-  }) : super(key: key);
+  });
 
   @override
   State<ProfessionalWaterDrop> createState() => _ProfessionalWaterDropState();
@@ -100,7 +100,7 @@ class _ProfessionalWaterDropState extends State<ProfessionalWaterDrop>
         builder: (context, child) {
           return Transform.scale(
             scale: _scaleAnimation.value,
-            child: Container(
+            child: SizedBox(
               width: widget.size,
               height: widget.size * 1.3,
               child: Stack(
@@ -134,7 +134,7 @@ class _ProfessionalWaterDropState extends State<ProfessionalWaterDrop>
                   ),
 
                   // Gota principal con múltiples capas
-                  Container(
+                  SizedBox(
                     width: widget.size,
                     height: widget.size * 1.3,
                     child: Stack(
@@ -458,7 +458,7 @@ class _WaveEffectState extends State<_WaveEffect>
     return AnimatedBuilder(
       animation: _waveAnimation,
       builder: (context, child) {
-        return Container(
+        return SizedBox(
           width: widget.size,
           height: widget.size * 0.3,
           child: CustomPaint(

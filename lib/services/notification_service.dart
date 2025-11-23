@@ -298,7 +298,7 @@ class NotificationService {
         final porcentajeLlenado = (aguaLitros / capacidadLitros) * 100.0;
 
         debugPrint(
-            '[NOTIFICATION DEBUG] 💧 Verificando tanque: ${aguaLitros}L/${capacidadLitros}L (${porcentajeLlenado.toStringAsFixed(1)}%) - umbral: ${tankFullThreshold}%');
+            '[NOTIFICATION DEBUG] 💧 Verificando tanque: ${aguaLitros}L/${capacidadLitros}L (${porcentajeLlenado.toStringAsFixed(1)}%) - umbral: $tankFullThreshold%');
 
         // Mostrar alerta si supera el umbral configurado
         if (porcentajeLlenado >= tankFullThreshold) {
@@ -324,7 +324,7 @@ class NotificationService {
     if (humidityLowEnabled) {
       final humedad = sensorData['humedadRelativa'];
       debugPrint(
-          '[NOTIFICATION DEBUG] 💨 Verificando humedad: ${humedad}% (umbral: ${humidityLowThreshold}%)');
+          '[NOTIFICATION DEBUG] 💨 Verificando humedad: $humedad% (umbral: $humidityLowThreshold%)');
       if (humedad != null && humedad is num && humedad < humidityLowThreshold) {
         debugPrint('[NOTIFICATION DEBUG] 🚨 ALERTA: Humedad baja detectada!');
         await _showHumidityLowAlert(humedad.toDouble(), humidityLowThreshold);

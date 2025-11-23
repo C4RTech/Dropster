@@ -32,7 +32,7 @@ class AppLifecycleService {
     if (_currentState == state) return;
 
     _currentState = state;
-    print('[LIFECYCLE] Estado cambió a: $state');
+    debugPrint('[LIFECYCLE] Estado cambió a: $state');
 
     switch (state) {
       case AppLifecycleState.paused:
@@ -49,7 +49,7 @@ class AppLifecycleService {
 
   /// Configura el modo background para ahorrar batería
   void _enterBackgroundMode() {
-    print('[LIFECYCLE] Entrando en modo background');
+    debugPrint('[LIFECYCLE] Entrando en modo background');
 
     // Configurar MQTT para background
     SingletonMqttService().setBackgroundMode(true);
@@ -57,7 +57,7 @@ class AppLifecycleService {
     // Iniciar timer para verificaciones periódicas en background
     _backgroundTimer?.cancel();
     _backgroundTimer = Timer.periodic(_backgroundCheckInterval, (_) {
-      print('[LIFECYCLE] Verificación periódica en background');
+      debugPrint('[LIFECYCLE] Verificación periódica en background');
       // Aquí se puede agregar lógica adicional para background
     });
 
@@ -67,7 +67,7 @@ class AppLifecycleService {
 
   /// Configura el modo foreground para máxima responsiveness
   void _enterForegroundMode() {
-    print('[LIFECYCLE] Entrando en modo foreground');
+    debugPrint('[LIFECYCLE] Entrando en modo foreground');
 
     // Configurar MQTT para foreground
     SingletonMqttService().setBackgroundMode(false);
@@ -81,13 +81,13 @@ class AppLifecycleService {
 
   /// Inicia actualizaciones rápidas temporalmente
   void _startFastUpdates() {
-    print('[LIFECYCLE] Iniciando actualizaciones rápidas');
+    debugPrint('[LIFECYCLE] Iniciando actualizaciones rápidas');
     _fastUpdateTimer?.cancel();
 
     // Actualizaciones rápidas por 2 minutos
     _fastUpdateTimer = Timer.periodic(_fastUpdateInterval, (_) {
       // Lógica para actualizaciones rápidas si es necesario
-      print('[LIFECYCLE] Actualización rápida ejecutada');
+      debugPrint('[LIFECYCLE] Actualización rápida ejecutada');
     });
 
     // Después de 2 minutos, volver a velocidad normal
@@ -98,7 +98,7 @@ class AppLifecycleService {
 
   /// Detiene las actualizaciones rápidas
   void _stopFastUpdates() {
-    print('[LIFECYCLE] Deteniendo actualizaciones rápidas');
+    debugPrint('[LIFECYCLE] Deteniendo actualizaciones rápidas');
     _fastUpdateTimer?.cancel();
     _fastUpdateTimer = null;
   }

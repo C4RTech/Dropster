@@ -436,10 +436,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     }
 
-    // Agregar listener temporal
-    SingletonMqttService().notifier.addListener(() {
-      onConfigConfirmation(SingletonMqttService().notifier.value);
-    });
+    // Agregar listener temporal (guardar la referencia para removerla luego)
+    void listener() => onConfigConfirmation(SingletonMqttService().notifier.value);
+    SingletonMqttService().notifier.addListener(listener);
 
     try {
       debugPrint('[SETTINGS] 🚀 Iniciando guardado de configuración...');
@@ -770,9 +769,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         }
       } finally {
         // Limpiar listener temporal
-        SingletonMqttService().notifier.removeListener(() {
-          onConfigConfirmation(SingletonMqttService().notifier.value);
-        });
+        SingletonMqttService().notifier.removeListener(listener);
       }
     } catch (e) {
       debugPrint('[SETTINGS] ❌ Error guardando configuración: $e');
@@ -1780,7 +1777,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final currentContext = context;
     final reports = await EnhancedDailyReportService().getReportHistory();
 
-    if (mounted) {
+      if (!mounted) return;
       showDialog(
         context: currentContext,
         builder: (context) => AlertDialog(
@@ -1840,17 +1837,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             if (reports.isNotEmpty)
               TextButton(
-                onPressed: () async {
-                  await EnhancedDailyReportService().clearReportHistory();
+                onPressed: () {
                   Navigator.pop(currentContext);
-                  if (mounted) {
-                    ScaffoldMessenger.of(currentContext).showSnackBar(
-                      const SnackBar(
-                        content: Text('Historial de reportes borrado'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
+                  _clearReportHistoryAndNotify();
                 },
                 child: const Text('Borrar Historial',
                     style: TextStyle(color: Colors.red)),
@@ -2082,5 +2071,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _clearAllDataAndNotify() async {
+    try {
+      await MqttHiveService.clearAllData();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Datos borrados correctamente',
+              style: TextStyle(color: Color(0xFF155263))),
+          backgroundColor: Colors.white,
+        ),
+      );
+    } catch (e) {
+      debugPrint('[SETTINGS] ❌ Error borrando datos: $e');
+    }
+  }
+
+  Future<void> _clearReportHistoryAndNotify() async {
+    try {
+      await EnhancedDailyReportService().clearReportHistory();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Historial de reportes borrado'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (e) {
+      debugPrint('[SETTINGS] ❌ Error borrando historial de reportes: $e');
+    }
   }
 }

@@ -2,6 +2,12 @@
 
     <!-- Internet para MQTT -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Permiso para services en primer plano (Android 9+) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <!-- Opcional: mantener CPU despierto para tareas críticas en background -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- Opcional: recibir BOOT_COMPLETED para reiniciar servicio si se desea -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 
 
     <application
