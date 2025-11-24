@@ -23,7 +23,6 @@
 
 // Pin para control del backlight del display
 #define TFT_BACKLIGHT_PIN 21
-
 #define LV_COLOR_DEPTH 16
 
 SPIClass touchscreenSPI = SPIClass(VSPI);
@@ -42,7 +41,6 @@ bool pumpState = false;
 bool backlightOn = true;
 unsigned long lastActivityTime = 0;
 unsigned int screenTimeoutSec = 0;  // Timeout en segundos, 0 = deshabilitado
-
 lv_obj_t *labels[13];
 lv_obj_t *agua_label;
 
@@ -187,7 +185,6 @@ static void event_handler_pump(lv_event_t * e) {
 // Handler para cambiar Modo AUTO / MANUAL desde la pantalla
 static void event_handler_mode(lv_event_t * e) {
   if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-
   uiModeAuto = !uiModeAuto;
 
   // actualizar botón MODE y botones operativos
@@ -335,7 +332,6 @@ void lv_create_main_gui(void) {
     lv_obj_set_style_text_color(wifi_config_label, COLOR_DARK, 0);
     lv_obj_set_style_text_font(wifi_config_label, &lv_font_montserrat_14, 0);
     lv_obj_center(wifi_config_label);
-
     lv_obj_align_to(wifi_config_btn, data_panel, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
 
     // Botón para reconectar WiFi y MQTT
@@ -353,7 +349,6 @@ void lv_create_main_gui(void) {
     lv_obj_set_style_text_color(reconnect_label, COLOR_DARK, 0);
     lv_obj_set_style_text_font(reconnect_label, &lv_font_montserrat_14, 0);
     lv_obj_center(reconnect_label);
-
     lv_obj_align_to(reconnect_btn, wifi_config_btn, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
 
     // Subtítulo 1: VALORES AMBIENTALES (sin Agua almac)
@@ -662,7 +657,7 @@ void update_agua_almacenada(float agua) {
 
 void setup() {
     Serial.begin(115200);
-    Serial1.begin(115200, SERIAL_8N1, 35, 22);  // RX=35 (de AWG TX=4), TX=22 (a AWG RX=0) - GPIO 22 no tiene conflicto
+    Serial1.begin(115200, SERIAL_8N1, 35, 22);  // RX=35 (de AWG TX=4), TX=22 (a AWG RX=0)
     delay(100);  // Esperar estabilización UART
     lv_init();
     lv_log_register_print_cb(log_print);
@@ -684,7 +679,6 @@ void setup() {
     lv_indev_t * indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(indev, touchscreen_read);
-
     lv_create_main_gui();
 
     // Inicializar últimos valores válidos
@@ -706,7 +700,6 @@ void loop() {
         processed++;
 
         if (c == '\r') continue;
-
         if (c == '\n') {
  
             buffer[buf_idx] = '\0';

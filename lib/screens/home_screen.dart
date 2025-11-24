@@ -78,100 +78,106 @@ class _HomeScreenState extends State<HomeScreen>
 
     // Función para procesar datos del notifier
     void processNotifierData() {
-      final data = globalNotifier.value;
-      print('[UI DEBUG] Procesando datos del notifier: ${data.keys}');
+      try {
+        final data = globalNotifier.value;
+        print('[UI DEBUG] Procesando datos del notifier: ${data.keys}');
 
-      // Log específico para energia
-      if (data.containsKey('energia')) {
-        print(
-            '[UI ENERGIA DEBUG] ✅ Energía en notifier: ${data['energia']} (tipo: ${data['energia'].runtimeType})');
-      } else {
-        print('[UI ENERGIA DEBUG] ⚠️ Energía NO presente en notifier');
-        print('[UI ENERGIA DEBUG] Datos actuales: $data');
-      }
-
-      // Actualizar estado del compresor desde MQTT
-      final newCompressorState = data['cs'] ?? 0;
-      if (newCompressorState != compressorState && mounted) {
-        compressorState = newCompressorState;
-        _debouncedSetState();
-      }
-
-      // Actualizar estado del ventilador desde MQTT
-      final newVentilatorState = data['vs'] ?? 0;
-      if (newVentilatorState != ventilatorState && mounted) {
-        ventilatorState = newVentilatorState;
-        print(
-            '[UI DEBUG] Estado del ventilador actualizado a: $ventilatorState');
-        _debouncedSetState();
-      }
-
-      // Actualizar estado de la bomba desde MQTT
-      final newPumpState = data['ps'] ?? 0;
-      if (newPumpState != pumpState && mounted) {
-        pumpState = newPumpState;
-        print('[UI DEBUG] Estado de la bomba actualizado a: $pumpState');
-        _debouncedSetState();
-      }
-
-      // Actualizar estado del ventilador del compresor desde MQTT
-      final newCompressorFanState = data['cfs'] ?? compressorFanState;
-      if (newCompressorFanState != compressorFanState && mounted) {
-        print(
-            '[UI DEBUG] Estado del ventilador del compresor cambiando de $compressorFanState a $newCompressorFanState (modo: $operationMode)');
-        compressorFanState = newCompressorFanState;
-        print(
-            '[UI DEBUG] Estado del ventilador del compresor actualizado a: $compressorFanState');
-        _debouncedSetState();
-      }
-
-      // Actualizar modo de operación desde MQTT
-      final newMode = data['mode'] ?? operationMode;
-      if (newMode != operationMode && mounted) {
-        print('[UI DEBUG] Modo cambiando de $operationMode a $newMode');
-        operationMode = newMode;
-        print('[UI DEBUG] Modo de operación actualizado a: $operationMode');
-        _debouncedSetState();
-      }
-
-      // Mostrar diálogo de error de bomba si se recibe el mensaje del ESP32
-      if (data.containsKey('pump_error') &&
-          data['pump_error'] is Map &&
-          mounted) {
-        final pumpError = data['pump_error'] as Map<String, dynamic>;
-        final reason = pumpError['reason'] ?? 'unknown';
-        final message = pumpError['message'] ?? 'Error desconocido en la bomba';
-        print('[UI DEBUG] Recibido pump_error del ESP32: $reason - $message');
-        _showPumpErrorDialog(reason: reason, message: message);
-      }
-
-      // Obtener capacidad del tanque desde configuración
-      final settingsBox = Hive.box('settings');
-      final tankCapacity =
-          settingsBox.get('tankCapacity', defaultValue: 1000.0);
-
-      // Intentar diferentes nombres de clave para el agua almacenada
-      double? aguaReal;
-      if (data['aguaAlmacenada'] != null) {
-        aguaReal = (data['aguaAlmacenada'] as num).toDouble();
-      } else if (data['agua'] != null) {
-        aguaReal = (data['agua'] as num).toDouble();
-      } else if (data['waterStored'] != null) {
-        aguaReal = (data['waterStored'] as num).toDouble();
-      }
-
-      if (aguaReal != null && aguaReal >= 0 && tankCapacity > 0) {
-        // Calcular porcentaje basado en capacidad configurada
-        final porcentaje = (aguaReal / tankCapacity).clamp(0.0, 1.0);
-        if (mounted && tankLevel != porcentaje) {
-          tankLevel = porcentaje;
+        // Log específico para energia
+        if (data.containsKey('energia')) {
           print(
-              '[UI DEBUG] Nivel de tanque actualizado a ${(porcentaje * 100).toStringAsFixed(1)}% (agua: $aguaReal L de $tankCapacity L)');
+              '[UI ENERGIA DEBUG] ✅ Energía en notifier: ${data['energia']} (tipo: ${data['energia'].runtimeType})');
+        } else {
+          print('[UI ENERGIA DEBUG] ⚠️ Energía NO presente en notifier');
+          print('[UI ENERGIA DEBUG] Datos actuales: $data');
+        }
+
+        // Actualizar estado del compresor desde MQTT
+        final newCompressorState = data['cs'] ?? 0;
+        if (newCompressorState != compressorState && mounted) {
+          compressorState = newCompressorState;
           _debouncedSetState();
         }
-      } else {
-        print(
-            '[UI DEBUG] No se encontró dato de agua almacenada o capacidad inválida');
+
+        // Actualizar estado del ventilador desde MQTT
+        final newVentilatorState = data['vs'] ?? 0;
+        if (newVentilatorState != ventilatorState && mounted) {
+          ventilatorState = newVentilatorState;
+          print(
+              '[UI DEBUG] Estado del ventilador actualizado a: $ventilatorState');
+          _debouncedSetState();
+        }
+
+        // Actualizar estado de la bomba desde MQTT
+        final newPumpState = data['ps'] ?? 0;
+        if (newPumpState != pumpState && mounted) {
+          pumpState = newPumpState;
+          print('[UI DEBUG] Estado de la bomba actualizado a: $pumpState');
+          _debouncedSetState();
+        }
+
+        // Actualizar estado del ventilador del compresor desde MQTT
+        final newCompressorFanState = data['cfs'] ?? compressorFanState;
+        if (newCompressorFanState != compressorFanState && mounted) {
+          print(
+              '[UI DEBUG] Estado del ventilador del compresor cambiando de $compressorFanState a $newCompressorFanState (modo: $operationMode)');
+          compressorFanState = newCompressorFanState;
+          print(
+              '[UI DEBUG] Estado del ventilador del compresor actualizado a: $compressorFanState');
+          _debouncedSetState();
+        }
+
+        // Actualizar modo de operación desde MQTT
+        final newMode = data['mode'] ?? operationMode;
+        if (newMode != operationMode && mounted) {
+          print('[UI DEBUG] Modo cambiando de $operationMode a $newMode');
+          operationMode = newMode;
+          print('[UI DEBUG] Modo de operación actualizado a: $operationMode');
+          _debouncedSetState();
+        }
+
+        // Mostrar diálogo de error de bomba si se recibe el mensaje del ESP32
+        if (data.containsKey('pump_error') &&
+            data['pump_error'] is Map &&
+            mounted) {
+          final pumpError = data['pump_error'] as Map<String, dynamic>;
+          final reason = pumpError['reason'] ?? 'unknown';
+          final message =
+              pumpError['message'] ?? 'Error desconocido en la bomba';
+          print('[UI DEBUG] Recibido pump_error del ESP32: $reason - $message');
+          _showPumpErrorDialog(reason: reason, message: message);
+        }
+
+        // Obtener capacidad del tanque desde configuración
+        final settingsBox = Hive.box('settings');
+        final tankCapacity =
+            settingsBox.get('tankCapacity', defaultValue: 1000.0);
+
+        // Intentar diferentes nombres de clave para el agua almacenada
+        double? aguaReal;
+        if (data['aguaAlmacenada'] != null) {
+          aguaReal = (data['aguaAlmacenada'] as num).toDouble();
+        } else if (data['agua'] != null) {
+          aguaReal = (data['agua'] as num).toDouble();
+        } else if (data['waterStored'] != null) {
+          aguaReal = (data['waterStored'] as num).toDouble();
+        }
+
+        if (aguaReal != null && aguaReal >= 0 && tankCapacity > 0) {
+          // Calcular porcentaje basado en capacidad configurada
+          final porcentaje = (aguaReal / tankCapacity).clamp(0.0, 1.0);
+          if (mounted && tankLevel != porcentaje) {
+            tankLevel = porcentaje;
+            print(
+                '[UI DEBUG] Nivel de tanque actualizado a ${(porcentaje * 100).toStringAsFixed(1)}% (agua: $aguaReal L de $tankCapacity L)');
+            _debouncedSetState();
+          }
+        } else {
+          print(
+              '[UI DEBUG] No se encontró dato de agua almacenada o capacidad inválida');
+        }
+      } catch (e, stackTrace) {
+        print('[UI DEBUG] Error procesando datos del notifier: $e');
+        print('[UI DEBUG] StackTrace: $stackTrace');
       }
     }
 

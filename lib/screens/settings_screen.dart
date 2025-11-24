@@ -184,24 +184,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           debugPrint('[SYNC] ✅ Configuración sincronizada desde ESP32');
 
-          // Mostrar snackbar de confirmación
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  '✅ Configuración sincronizada desde ESP32',
-                  style: TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.w500),
-                ),
-                backgroundColor: Colors.green.shade600,
-                duration: Duration(seconds: 3),
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            );
-          }
+          // Mostrar snackbar de confirmación (removido para evitar problemas de context)
 
           // Limpiar el backup del notifier para evitar re-procesamiento
           SingletonMqttService().notifier.value = {...data}..remove('type');
@@ -437,7 +420,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     // Agregar listener temporal (guardar la referencia para removerla luego)
-    void listener() => onConfigConfirmation(SingletonMqttService().notifier.value);
+    void listener() =>
+        onConfigConfirmation(SingletonMqttService().notifier.value);
     SingletonMqttService().notifier.addListener(listener);
 
     try {
@@ -939,7 +923,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: const Text('Borrar todos los datos'),
               subtitle:
                   const Text('Elimina todos los datos históricos almacenados'),
-              onTap: _showClearDataDialog,
+              onTap: () => _showClearDataDialog(context),
             ),
           ],
         ),
@@ -1060,7 +1044,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: const Text('Reporte del día actual'),
               subtitle: const Text('Generar reporte con datos actuales'),
               trailing: const Icon(Icons.assessment, size: 16),
-              onTap: _generateCurrentDayReport,
+              onTap: () => _generateCurrentDayReport(context),
             ),
           ],
         ),
@@ -1604,7 +1588,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _showClearDataDialog() {
+  void _showClearDataDialog(BuildContext context) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -1626,14 +1610,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               return ElevatedButton(
                 onPressed: () async {
                   Navigator.pop(context);
-                  await MqttHiveService.clearAllData();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: const Text('Datos borrados correctamente',
-                          style: TextStyle(color: Color(0xFF155263))),
-                      backgroundColor: Colors.white,
-                    ),
-                  );
+                  await _clearAllDataAndNotify(dialogContext);
                 },
                 style: ElevatedButton.styleFrom(backgroundColor: colorPrimary),
                 child:
@@ -1777,106 +1754,98 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final currentContext = context;
     final reports = await EnhancedDailyReportService().getReportHistory();
 
-      if (!mounted) return;
-      showDialog(
-        context: currentContext,
-        builder: (context) => AlertDialog(
-          title: const Text('Historial de Reportes Diarios'),
-          content: SizedBox(
-            width: double.maxFinite,
-            height: 400,
-            child: reports.isEmpty
-                ? const Center(
-                    child: Text('No hay reportes disponibles'),
-                  )
-                : ListView.builder(
-                    itemCount: reports.length,
-                    itemBuilder: (context, index) {
-                      final report = reports[index];
-                      final date =
-                          DateTime.fromMillisecondsSinceEpoch(report['date']);
-                      final energy = report['energy'] ?? 0.0;
-                      final water = report['water'] ?? 0.0;
-                      final efficiency = report['efficiency'] ?? 0.0;
+    if (!mounted) return;
+    showDialog(
+      context: currentContext,
+      builder: (context) => AlertDialog(
+        title: const Text('Historial de Reportes Diarios'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 400,
+          child: reports.isEmpty
+              ? const Center(
+                  child: Text('No hay reportes disponibles'),
+                )
+              : ListView.builder(
+                  itemCount: reports.length,
+                  itemBuilder: (context, index) {
+                    final report = reports[index];
+                    final date =
+                        DateTime.fromMillisecondsSinceEpoch(report['date']);
+                    final energy = report['energy'] ?? 0.0;
+                    final water = report['water'] ?? 0.0;
+                    final efficiency = report['efficiency'] ?? 0.0;
 
-                      return Card(
-                        margin: const EdgeInsets.symmetric(vertical: 4),
-                        child: ListTile(
-                          title: Text(
-                            '${DateFormat('dd/MM/yyyy').format(date)}',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                  '⚡ Energía: ${energy.toStringAsFixed(2)} Wh'),
-                              Text('💧 Agua: ${water.toStringAsFixed(2)} L'),
-                              Text(
-                                  '⚡ Eficiencia: ${efficiency.toStringAsFixed(3)} Wh/L'),
-                            ],
-                          ),
-                          trailing: Icon(
-                            efficiency > 0 ? Icons.check_circle : Icons.warning,
-                            color:
-                                efficiency > 0 ? Colors.green : Colors.orange,
-                          ),
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 4),
+                      child: ListTile(
+                        title: Text(
+                          '${DateFormat('dd/MM/yyyy').format(date)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
-                      );
-                    },
-                  ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(currentContext),
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.white,
-              ),
-              child:
-                  const Text('Cerrar', style: TextStyle(color: Colors.white)),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('⚡ Energía: ${energy.toStringAsFixed(2)} Wh'),
+                            Text('💧 Agua: ${water.toStringAsFixed(2)} L'),
+                            Text(
+                                '⚡ Eficiencia: ${efficiency.toStringAsFixed(3)} Wh/L'),
+                          ],
+                        ),
+                        trailing: Icon(
+                          efficiency > 0 ? Icons.check_circle : Icons.warning,
+                          color: efficiency > 0 ? Colors.green : Colors.orange,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(currentContext),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.white,
             ),
-            if (reports.isNotEmpty)
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(currentContext);
-                  _clearReportHistoryAndNotify();
-                },
-                child: const Text('Borrar Historial',
-                    style: TextStyle(color: Colors.red)),
-              ),
-          ],
+            child: const Text('Cerrar', style: TextStyle(color: Colors.white)),
+          ),
+          if (reports.isNotEmpty)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(currentContext);
+                _clearReportHistoryAndNotify();
+              },
+              child: const Text('Borrar Historial',
+                  style: TextStyle(color: Colors.red)),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _generateCurrentDayReport(BuildContext context) async {
+    try {
+      debugPrint('📊 Generando reporte del día actual...');
+      await EnhancedDailyReportService().generateCurrentDayReport();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Reporte del día actual enviado',
+              style: TextStyle(color: Color(0xFF155263))),
+          backgroundColor: Colors.white,
+        ),
+      );
+    } catch (e) {
+      debugPrint('Error generando reporte del día actual: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error generando reporte: $e'),
+          backgroundColor: Colors.red,
         ),
       );
     }
   }
 
-  void _generateCurrentDayReport() async {
-    try {
-      debugPrint('📊 Generando reporte del día actual...');
-      await EnhancedDailyReportService().generateCurrentDayReport();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Reporte del día actual enviado',
-                style: TextStyle(color: Color(0xFF155263))),
-            backgroundColor: Colors.white,
-          ),
-        );
-      }
-    } catch (e) {
-      debugPrint('Error generando reporte del día actual: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error generando reporte: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  // Métodos para configuración del tanque
+// Métodos para configuración del tanque
 
   void _showUltrasonicOffsetDialog() {
     final colorPrimary = Theme.of(context).colorScheme.primary;
@@ -2073,10 +2042,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<void> _clearAllDataAndNotify() async {
+  Future<void> _clearAllDataAndNotify(BuildContext context) async {
     try {
       await MqttHiveService.clearAllData();
-      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Datos borrados correctamente',

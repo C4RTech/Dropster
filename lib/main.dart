@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:dropster/screens/home_screen.dart';
@@ -17,7 +18,18 @@ import 'services/app_lifecycle_service.dart';
 import 'services/daily_report_service.dart';
 
 void main() {
-  runApp(const DropsterApp());
+  // Configurar manejo global de errores
+  FlutterError.onError = (FlutterErrorDetails details) {
+    print('[GLOBAL ERROR] Flutter error: ${details.exception}');
+    print('[GLOBAL ERROR] Stack trace: ${details.stack}');
+  };
+
+  runZonedGuarded(() {
+    runApp(const DropsterApp());
+  }, (error, stack) {
+    print('[GLOBAL ERROR] Uncaught error: $error');
+    print('[GLOBAL ERROR] Stack: $stack');
+  });
 }
 
 class DropsterApp extends StatelessWidget {
@@ -186,18 +198,21 @@ class _LoaderScreenState extends State<LoaderScreen>
       print('[APP INIT] Inicialización básica completada');
 
       // Iniciar servicio de background en Android para mantener MQTT 24/7
+      // TEMPORALMENTE DESHABILITADO COMPLETAMENTE PARA DEBUG
+      /*
       try {
         if (Platform.isAndroid) {
           print('[APP INIT] Iniciando servicio foreground (Android)');
           await BackgroundServiceManager().initializeMinimalForegroundService();
           // También inicializar el servicio MQTT para foreground (app) para que tenga su propia instancia
-          await BackgroundMqttService().initialize();
+          // await BackgroundMqttService().initialize(); // Deshabilitado temporalmente
           print(
-              '[APP INIT] Servicio background iniciado y MQTT inicializado en background');
+              '[APP INIT] Servicio background iniciado (sin MQTT en background)');
         }
       } catch (e) {
         print('[APP INIT] Error iniciando servicio background: $e');
       }
+      */
 
       setState(() {
         _initialized = true;

@@ -91,6 +91,8 @@ Future<void> _onSimpleForegroundStart(ServiceInstance service) async {
     });
 
     // Inicializar el servicio MQTT de background dentro del entrypoint
+    // TEMPORALMENTE DESHABILITADO PARA DEBUG
+    /*
     try {
       // Cargar e inicializar el servicio que gestionará MQTT en background
       debugPrint('[BACKGROUND_SERVICE] Inicializando BackgroundMqttService...');
@@ -107,6 +109,7 @@ Future<void> _onSimpleForegroundStart(ServiceInstance service) async {
       debugPrint('[BACKGROUND_SERVICE] Timer ejecutándose cada 30 segundos...');
       // Servicio simple sin lógica compleja
     });
+    */
     debugPrint(
         '[BACKGROUND_SERVICE] ✅ Servicio foreground configurado y ejecutándose');
   } catch (e, stackTrace) {
