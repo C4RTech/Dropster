@@ -24,7 +24,7 @@ class InfoScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  "Dropster es una aplicación móvil que permite el monitoreo y control en tiempo real del sistema Dropster AWG (Atmospheric Water Generator). Esta tecnología genera agua para sistemas de riego en ambientes controlados a partir de la humedad del aire utilizando refrigeración y condensación.\n",
+                  "Dropster es una aplicación móvil que permite el control y monitoreo en tiempo real del dispositivo Dropster AWG (Atmospheric Water Generator). Esta tecnología genera agua para sistemas de riego en ambientes controlados a partir de la humedad del aire utilizando refrigeración y condensación.\n",
                   style: TextStyle(fontSize: 14),
                 ),
                 const SizedBox(height: 16),
@@ -38,7 +38,7 @@ class InfoScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  "🏠 Inicio: Monitoreo de variables principales (nivel del tanque, temperatura, humedad, energía consumida) y control de actuadores\n"
+                  "🏠 Inicio: pantalla principal donde se encuantra el nivel de agua del tanque, modo de operacion y control de actuadores del dispositivo\n"
                   "📊 Monitoreo: Datos detallados del sistema en tiempo real\n"
                   "🔗 Conectividad: Gestión de conexiones MQTT\n"
                   "📈 Gráficas: Visualización histórica y en tiempo real de variables de interés\n"
@@ -57,12 +57,7 @@ class InfoScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  "• Monitoreo en tiempo real de variables de interés\n"
-                  "• Notificaciones inteligentes para Alertas de anomalías y reportes diarios automáticos\n"
-                  "• Reportes diarios automáticos con cálculo de agua generada y eficiencia del sistema\n"
-                  "• Almacenamiento local de datos históricos\n"
-                  "• Interfaz responsiva y adaptativa\n"
-                  "• Notificaciones inteligentes para alerta de anomalías y reportes diarios\n",
+                  "• Monitoreo en tiempo real de las variables medidas por el dispositivo\n• Notificaciones inteligentes para alertas de anomalías y reportes diarios automáticos\n• Reportes diarios automáticos con cálculo de agua generada, consumo electrico y eficiencia del dispositivo\n• Almacenamiento local de datos históricos\n• Interfaz responsiva y adaptativa\n",
                   style: TextStyle(fontSize: 14),
                 ),
               ],
@@ -142,7 +137,7 @@ class InfoScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 16),
                     Text(
-                      "Versión: 1.1.0",
+                      "Versión: 1.0",
                       style: TextStyle(fontSize: 18, color: colorText),
                     ),
                     const SizedBox(height: 8),

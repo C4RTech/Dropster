@@ -16,17 +16,17 @@
 #define MQTT_TOPIC_ERRORS "dropster/errors"       // Mensajes de error
 #define MQTT_TOPIC_SYSTEM "dropster/system"       // Estado general del sistema
 
-// Intervalos de operación (ms)
+// Intervalos de operación (ms) - Optimizados para estabilidad MQTT
 #define SENSOR_READ_INTERVAL 2000  // Reducido para lecturas más frecuentes
-#define UART_TRANSMIT_INTERVAL 3000  // Reducido para display más responsivo
+#define UART_TRANSMIT_INTERVAL 5000  // Aumentado para evitar buffer UART lleno
 #define MQTT_TRANSMIT_INTERVAL 5000
-#define HEARTBEAT_INTERVAL 60000
+#define HEARTBEAT_INTERVAL 30000     // Reducido a 30s para mejor keep-alive
 #define WIFI_CHECK_INTERVAL 10000
-#define MQTT_RECONNECT_DELAY 5000
+#define MQTT_RECONNECT_DELAY 3000    // Reducido para reconexión más rápida
 #define CONFIG_BUTTON_TIMEOUT 5000
 
 // CONFIGURACIÓN DEL SISTEMA DE TANQUE
-#define MAX_CALIBRATION_POINTS 10
+#define MAX_CALIBRATION_POINTS 30
 
 // Constantes para cálculos
 #define Rv 461.5
@@ -92,7 +92,6 @@
 #define COLOR_BLUE_G 0
 #define COLOR_BLUE_B (uint8_t)(255 * LED_INTENSITY_B)
 
-
 #define COLOR_WHITE_R (uint8_t)(255 * LED_INTENSITY_R)
 #define COLOR_WHITE_G (uint8_t)(255 * LED_INTENSITY_G)
 #define COLOR_WHITE_B (uint8_t)(255 * LED_INTENSITY_B)
@@ -120,12 +119,12 @@
 
 // Límites de seguridad
 #define MIN_WATER_LEVEL 5.0f               // Nivel mínimo de agua para bombear (%)
-#define MAX_COMPRESSOR_TEMP 100.0f         // Temperatura máxima segura del compresor (°C)
+#define MAX_COMPRESSOR_TEMP 95.0f         // Temperatura máxima segura del compresor (°C)
 
 // Parámetros de control automático (valores por defecto)
 #define CONTROL_DEADBAND_DEFAULT 3.0f      // Banda muerta (°C)
-#define CONTROL_MIN_OFF_DEFAULT 60         // Tiempo mínimo apagado (s)
-#define CONTROL_MAX_ON_DEFAULT 3600        // Tiempo máximo encendido (s)
+#define CONTROL_MIN_OFF_DEFAULT 120        // Tiempo mínimo apagado (s) - ajustado a 2 minutos
+#define CONTROL_MAX_ON_DEFAULT 7200        // Tiempo máximo encendido (s) - aumentado para mayor tiempo de funcionamiento continuo
 #define CONTROL_SAMPLING_DEFAULT 7         // Intervalo de muestreo (s)
 #define CONTROL_ALPHA_DEFAULT 0.2f         // Factor de suavizado (0-1)
 
@@ -136,10 +135,10 @@
 #define ALERT_VOLTAGE_ZERO_DEFAULT 0.0f    // Voltaje cero (siempre activo)
 
 // Configuración del tanque
-#define TANK_CAPACITY_DEFAULT 1000.0f      // Capacidad por defecto (L)
+#define TANK_CAPACITY_DEFAULT 20.0f      // Capacidad por defecto (L)
 
-// Configuración de recuperación de sensores
-#define SENSOR_RECOVERY_INTERVAL 30000     // Intervalo de recuperación (ms)
+// Configuración de protección de bomba
+#define PUMP_MIN_LEVEL_DEFAULT 2.0f       // Nivel mínimo para bomba (L)
 
 #define LOG_MSG_LEN 240                    // Longitud máxima de mensajes de log
 
@@ -147,15 +146,12 @@
 #define SENSOR_STATUS_CHECK_INTERVAL 30000 // Intervalo de verificación de estado de sensores (ms)
 
 // Configuración WiFi
-#define WIFI_CONFIG_PORTAL_TIMEOUT 15
-#define WIFI_CONNECT_TIMEOUT 15
+#define WIFI_CONFIG_PORTAL_TIMEOUT 120
 
-// Configuración MQTT adicional
-#define MQTT_MAX_ATTEMPTS 3
-#define MQTT_MAX_BACKOFF 60000UL
+// Configuración MQTT adicional - Mejorada para estabilidad
+#define MQTT_MAX_BACKOFF 300000UL   // Máximo 5 minutos de backoff
 
 // Constantes de algoritmos
-#define ULTRASONIC_FILTER_K 3.5f
 #define PZEM_INIT_ATTEMPTS 3
 #define TEST_SENSOR_SAMPLES 5
 
@@ -167,7 +163,6 @@
 // Tamaños de buffers JSON
 #define STATUS_JSON_SIZE 200
 #define DATA_JSON_SIZE 300
-#define BACKUP_JSON_SIZE 1024
 #define CONFIG_JSON_SIZE 2048
 
 // Constantes de algoritmos
@@ -183,17 +178,31 @@
 #define ABSOLUTE_ZERO -273.15f                 // Cero absoluto para cálculos
 #define COMPRESSOR_FAN_TEMP_ON_OFFSET_DEFAULT 10.0f    // Offset por defecto para encender ventilador (°C)
 #define COMPRESSOR_FAN_TEMP_OFF_OFFSET_DEFAULT 20.0f   // Offset por defecto para apagar ventilador (°C)
+
+// Offsets para control del ventilador del evaporador
+#define EVAP_FAN_TEMP_ON_OFFSET_DEFAULT 1.0f    // Offset para encender ventilador evaporador (°C) - reducido para mayor eficiencia
+#define EVAP_FAN_TEMP_OFF_OFFSET_DEFAULT 0.5f   // Offset para apagar ventilador evaporador (°C) - reducido para mantener temperatura más estable
+#define EVAP_FAN_MIN_OFF_DEFAULT 30             // Tiempo mínimo apagado (s) - reducido para mayor eficiencia
+#define EVAP_FAN_MAX_ON_DEFAULT 1800            // Tiempo máximo encendido (s)
+
+// Offset de compensación para temperatura del evaporador (SHT31)
+#define EVAPORATOR_TEMP_OFFSET 15.0f            // Offset aplicado cuando compresor opera > 1 min (°C)
+#define EVAPORATOR_OFFSET_DELAY 60000UL         // Tiempo mínimo de operación del compresor para aplicar offset (ms, 1 min)
+
 #define CONTROL_SMOOTHING_ALPHA 0.7f           // Factor de suavizado en control
 #define TERMISTOR_SAMPLES 10                   // Muestras para promediar termistor (reducido para mayor velocidad)
-#define RECOVERY_MAX_ATTEMPTS 5                // Intentos máximos de recuperación
-#define RECOVERY_SUCCESS_THRESHOLD 3           // Umbral de éxito en recuperación
 
 // Constantes de timing adicionales
 #define STARTUP_DELAY 1000                     // Delay de inicio (ms)
-#define LOOP_DELAY 10                          // Delay del loop principal (ms)
 #define STATS_SAVE_INTERVAL 300000UL           // Intervalo para guardar estadísticas (ms, 5 min)
 #define CONFIG_ASSEMBLE_TIMEOUT 10000          // Timeout para ensamblaje de config (ms)
-#define RTC_SYNC_INTERVAL 86400000UL           // Intervalo para sincronización automática RTC (ms, 24 horas)
+
+// Protección del compresor
+#define COMPRESSOR_PROTECTION_TIME 10000UL     // Tiempo de monitoreo inicial (ms, 10s)
+#define COMPRESSOR_MIN_CURRENT 1.7f            // Corriente mínima para considerar arranque exitoso (A)
+#define COMPRESSOR_RETRY_DELAY 60000UL         // Retraso antes de reintentar arranque (ms, 1 min)
+
+#define CONFIG_PORTAL_MAX_TIMEOUT 120000UL     // Máximo tiempo de portal de configuración (ms, 2 minutos)
 
 // Constantes para arrays y contadores
 #define CONFIG_FRAGMENT_COUNT 4                 // Número de fragmentos de configuración

@@ -83,6 +83,7 @@ class MqttHiveService {
         'humedadRelativa':
             jsonData['h'] ?? 0.0, // h = humedad relativa ambiente
         'aguaAlmacenada': jsonData['w'] ?? 0.0, // w = agua almacenada
+        'water_height': jsonData['water_height'] ?? 0.0, // porcentaje de agua
 
         // === SENSORES ADICIONALES ===
         'sht1Temp': jsonData['te'] ?? 0.0, // te = temperatura evaporador
@@ -103,6 +104,12 @@ class MqttHiveService {
         'estadoCompresor':
             jsonData['cs'] ?? 0, // cs = estado compresor (0=OFF, 1=ON)
 
+        // === ESTADO DE CALIBRACIÓN ===
+        'calibrated': jsonData['calibrated'] ??
+            false, // calibrated = estado de calibración
+        'tankCalibrated': jsonData['tank_calibrated'] ==
+            'true', // tank_calibrated = estado de calibración del tanque
+
         // === TIMESTAMP ===
         'datetime': jsonData['ts']?.toString() ?? '', // ts = timestamp unix
         'timestamp': DateTime.now().millisecondsSinceEpoch,
@@ -113,6 +120,11 @@ class MqttHiveService {
       final energiaValue = parsedData['energia'];
       debugPrint(
           '[ENERGIA DEBUG] Valor mapeado para "energia": $energiaValue (tipo: ${energiaValue.runtimeType})');
+
+      // Verificar estado de calibración del tanque
+      final tankCalibrated = parsedData['tankCalibrated'];
+      debugPrint(
+          '[CALIBRATION DEBUG] Estado de calibración del tanque: $tankCalibrated (raw: ${jsonData['tank_calibrated']})');
 
       // Debug exhaustivo de valores eléctricos
       debugPrint('[ESP32 RAW DEBUG] === VALORES CRUDOS DEL ESP32 ===');

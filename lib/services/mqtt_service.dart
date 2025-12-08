@@ -31,19 +31,22 @@ class MqttService {
   Timer? _reconnectTimer;
   Timer? _connectionCheckTimer;
   Timer? _pingTimer;
+  Timer? _networkDiagnosticTimer;
   bool _isReconnecting = false;
   bool _isInBackground = false;
   int _reconnectAttempts = 0;
   DateTime? _lastMessageTime;
   DateTime? _lastPingTime;
   DateTime? _lastSuccessfulConnection;
+  DateTime? _lastNetworkCheck;
   static const int _maxReconnectAttempts = 20;
   static const Duration _baseReconnectInterval = Duration(seconds: 2);
   static const Duration _maxReconnectInterval = Duration(minutes: 5);
-  static const Duration _connectionCheckInterval = Duration(seconds: 10);
+  static const Duration _connectionCheckInterval = Duration(seconds: 5);
   static const Duration _pingInterval = Duration(seconds: 30);
   static const Duration _backgroundPingInterval = Duration(seconds: 60);
   static const Duration _connectionTimeout = Duration(seconds: 15);
+  static const Duration _networkDiagnosticInterval = Duration(minutes: 5);
 
   // Stream para publicar cambios de modo y suscribirse desde la UI
   final StreamController<String> _modeController =
@@ -65,27 +68,71 @@ class MqttService {
     return isConnected;
   }
 
+  /// Método público para ejecutar diagnóstico de red manualmente
+  Future<Map<String, dynamic>> performNetworkDiagnostic() async {
+    debugPrint('[MQTT NETWORK] 🔍 Ejecutando diagnóstico de red manual...');
+    final results = <String, dynamic>{};
+
+    try {
+      // Verificar conectividad básica
+      await _testNetworkConnectivity();
+      results['network_connectivity'] = 'OK';
+
+      // Verificar conectividad MQTT
+      await _testMqttConnectivity();
+      results['mqtt_connectivity'] = 'OK';
+
+      // Obtener estadísticas de conexión
+      results['connection_stats'] = getConnectionStats();
+
+      debugPrint('[MQTT NETWORK] ✅ Diagnóstico completado exitosamente');
+      results['overall_status'] = 'SUCCESS';
+    } catch (e) {
+      debugPrint('[MQTT NETWORK] ❌ Diagnóstico fallido: $e');
+      results['overall_status'] = 'FAILED';
+      results['error'] = e.toString();
+    }
+
+    return results;
+  }
+
   /// Inicia el monitoreo de conexión para reconexión automática
   void startConnectionMonitoring() {
     _connectionCheckTimer = Timer.periodic(_connectionCheckInterval, (_) {
+      final now = DateTime.now();
+      final timeSinceLastMessage = _lastMessageTime != null
+          ? now.difference(_lastMessageTime!).inSeconds
+          : null;
+
       debugPrint(
-          '[MQTT STATUS] Estado de conexión: ${isConnected ? 'CONECTADO' : 'DESCONECTADO'}');
-      debugPrint('[MQTT STATUS] Broker: $broker:$port');
-      debugPrint('[MQTT STATUS] Topic: $topic');
+          '[MQTT STATUS] Estado: ${isConnected ? 'CONECTADO' : 'DESCONECTADO'} | Broker: $broker:$port | Topic: $topic');
       debugPrint(
-          '[MQTT STATUS] Último mensaje: ${_lastMessageTime ?? 'Nunca'}');
+          '[MQTT STATUS] Último mensaje: ${_lastMessageTime ?? 'Nunca'} | Segundos sin mensaje: $timeSinceLastMessage');
 
       if (!isConnected && !_isReconnecting) {
-        debugPrint('[MQTT DEBUG] Conexión perdida, intentando reconectar...');
+        debugPrint(
+            '[MQTT RECONNECT] ⚠️ Conexión perdida detectada, iniciando reconexión automática...');
+        debugPrint(
+            '[MQTT RECONNECT] 📊 Estadísticas: Intentos=${_reconnectAttempts}, Última conexión=${_lastSuccessfulConnection ?? 'Nunca'}');
         _attemptReconnect();
+      } else if (isConnected &&
+          timeSinceLastMessage != null &&
+          timeSinceLastMessage > 300) {
+        debugPrint(
+            '[MQTT HEALTH] ⚠️ Conexión activa pero sin mensajes por ${timeSinceLastMessage}s - verificando salud...');
+        _checkConnectionHealth();
       }
     });
+
+    // Iniciar diagnóstico de red periódico
+    _startNetworkDiagnosticMonitoring();
   }
 
   /// Detiene el monitoreo de conexión
   void stopConnectionMonitoring() {
     _connectionCheckTimer?.cancel();
     _reconnectTimer?.cancel();
+    _networkDiagnosticTimer?.cancel();
     _stopActivityMonitoring();
     _isReconnecting = false;
     _reconnectAttempts = 0;
@@ -132,6 +179,75 @@ class MqttService {
   void _stopActivityMonitoring() {
     _pingTimer?.cancel();
     _pingTimer = null;
+  }
+
+  /// Inicia el monitoreo de diagnóstico de red
+  void _startNetworkDiagnosticMonitoring() {
+    _networkDiagnosticTimer?.cancel();
+    _networkDiagnosticTimer = Timer.periodic(_networkDiagnosticInterval, (_) {
+      final now = DateTime.now();
+      final timeSinceLastCheck = _lastNetworkCheck != null
+          ? now.difference(_lastNetworkCheck!).inMinutes
+          : null;
+
+      // Solo ejecutar diagnóstico si han pasado suficientes minutos o si hay problemas de conexión
+      if ((timeSinceLastCheck == null || timeSinceLastCheck >= 5) ||
+          (!isConnected && _reconnectAttempts > 3)) {
+        debugPrint(
+            '[MQTT NETWORK] 🔍 Iniciando diagnóstico de red automático...');
+        _performNetworkDiagnostic();
+        _lastNetworkCheck = now;
+      }
+    });
+  }
+
+  /// Realiza diagnóstico completo de red
+  Future<void> _performNetworkDiagnostic() async {
+    try {
+      debugPrint('[MQTT NETWORK] 🌐 Verificando conectividad básica...');
+
+      // 1. Verificar conectividad básica
+      await _testNetworkConnectivity();
+
+      // 2. Verificar conectividad MQTT específica
+      await _testMqttConnectivity();
+
+      // 3. Verificar estado de conexión actual
+      final stats = getConnectionStats();
+      debugPrint(
+          '[MQTT NETWORK] 📊 Estado actual: ${stats['isConnected'] ? 'CONECTADO' : 'DESCONECTADO'}');
+      debugPrint(
+          '[MQTT NETWORK] 📊 Intentos de reconexión: ${stats['reconnectAttempts']}');
+
+      debugPrint('[MQTT NETWORK] ✅ Diagnóstico de red completado');
+    } catch (e) {
+      debugPrint('[MQTT NETWORK] ❌ Error en diagnóstico de red: $e');
+      debugPrint('[MQTT NETWORK] 💡 Posibles causas:');
+      debugPrint('[MQTT NETWORK]    • Problemas de conectividad a internet');
+      debugPrint('[MQTT NETWORK]    • Broker MQTT inaccesible: $broker:$port');
+      debugPrint(
+          '[MQTT NETWORK]    • Firewall/antivirus bloqueando conexiones');
+      debugPrint('[MQTT NETWORK]    • Problemas de DNS');
+    }
+  }
+
+  /// Prueba conectividad específica MQTT
+  Future<void> _testMqttConnectivity() async {
+    try {
+      debugPrint(
+          '[MQTT NETWORK] 🔌 Probando conectividad MQTT al broker $broker:$port...');
+
+      // Intentar una conexión TCP básica al puerto MQTT
+      final socket = await Socket.connect(broker, port,
+          timeout: const Duration(seconds: 5));
+      socket.destroy();
+
+      debugPrint('[MQTT NETWORK] ✅ Broker MQTT reachable: $broker:$port');
+    } catch (e) {
+      debugPrint(
+          '[MQTT NETWORK] ❌ Broker MQTT NO reachable: $broker:$port - Error: $e');
+      throw Exception('Broker MQTT no accesible');
+    }
   }
 
   /// Verifica la salud de la conexión
@@ -182,12 +298,14 @@ class MqttService {
 
     _isReconnecting = true;
     debugPrint(
-        '[MQTT DEBUG] 🔄 Intentando reconexión (intento $_reconnectAttempts/$_maxReconnectAttempts)');
+        '[MQTT RECONNECT] 🔄 Intentando reconexión (intento $_reconnectAttempts/$_maxReconnectAttempts)');
+    debugPrint('[MQTT RECONNECT] 📍 Broker: $broker:$port, Topic: $topic');
 
     try {
       // Intentar conectar con timeout
       await connect(null).timeout(_connectionTimeout);
-      debugPrint('[MQTT DEBUG] ✅ Reconexión exitosa');
+      debugPrint(
+          '[MQTT RECONNECT] ✅ Reconexión exitosa - Conexión establecida');
       _isReconnecting = false;
       _reconnectAttempts = 0; // Reset contador en éxito
       _lastSuccessfulConnection = DateTime.now();
@@ -207,9 +325,21 @@ class MqttService {
               .round());
 
       debugPrint(
-          '[MQTT DEBUG] ❌ Reconexión fallida (intento $_reconnectAttempts/$_maxReconnectAttempts): $e');
+          '[MQTT RECONNECT] ❌ Reconexión fallida (intento $_reconnectAttempts/$_maxReconnectAttempts)');
+      debugPrint('[MQTT RECONNECT] 📋 Error: $e');
       debugPrint(
-          '[MQTT DEBUG] ⏰ Reintentando en ${delay.inSeconds}s (con jitter)');
+          '[MQTT RECONNECT] ⏰ Próximo intento en ${delay.inSeconds}s (backoff exponencial con jitter)');
+
+      // Agregar información adicional para debugging
+      if (_reconnectAttempts >= 5) {
+        debugPrint(
+            '[MQTT RECONNECT] ⚠️ Múltiples fallos consecutivos - verificar:');
+        debugPrint('[MQTT RECONNECT]   • Conectividad de red');
+        debugPrint('[MQTT RECONNECT]   • Broker MQTT accesible: $broker:$port');
+        debugPrint('[MQTT RECONNECT]   • Credenciales válidas');
+        debugPrint(
+            '[MQTT RECONNECT]   • Firewall/antivirus bloqueando puerto $port');
+      }
 
       _notifyConnectionStatus();
       _reconnectTimer = Timer(delay, () {
@@ -356,9 +486,10 @@ class MqttService {
         // Algunas versiones no exponen secure; ignore si no está disponible
       }
 
-      // Configuración optimizada para estabilidad
-      client!.keepAlivePeriod = 60; // 60 segundos
-      client!.connectTimeoutPeriod = 10000; // 10 segundos
+      // Configuración optimizada para estabilidad mejorada
+      client!.keepAlivePeriod =
+          120; // Aumentado a 120 segundos para mayor estabilidad
+      client!.connectTimeoutPeriod = 15000; // Aumentado a 15 segundos
       client!.autoReconnect =
           false; // Deshabilitar auto-reconnect del cliente (manejamos nosotros)
       client!.resubscribeOnAutoReconnect = true;
@@ -754,6 +885,7 @@ class MqttService {
     required int controlSampling,
     required double controlAlpha,
     required double maxCompressorTemp,
+    required int displayTimeoutMinutes,
     required bool showNotifications,
     required bool dailyReportEnabled,
     required TimeOfDay dailyReportTime,
@@ -795,6 +927,7 @@ class MqttService {
             'smp': controlSampling, // sampling
             'alp': formatValue(controlAlpha), // alpha
             'mt': formatValue(maxCompressorTemp.toInt()), // max temp
+            'dt': displayTimeoutMinutes * 60, // display timeout in seconds
           },
           'tank': {
             'cap': formatValue(tankCapacity), // capacity

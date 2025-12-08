@@ -148,9 +148,7 @@ class _HomeScreenState extends State<HomeScreen>
         }
 
         // Obtener capacidad del tanque desde configuración
-        final settingsBox = Hive.box('settings');
-        final tankCapacity =
-            settingsBox.get('tankCapacity', defaultValue: 1000.0);
+        final tankCapacity = 20.0; // Capacidad fija de 20 litros
 
         // Intentar diferentes nombres de clave para el agua almacenada
         double? aguaReal;
@@ -160,6 +158,8 @@ class _HomeScreenState extends State<HomeScreen>
           aguaReal = (data['agua'] as num).toDouble();
         } else if (data['waterStored'] != null) {
           aguaReal = (data['waterStored'] as num).toDouble();
+        } else if (data['w'] != null) {
+          aguaReal = (data['w'] as num).toDouble();
         }
 
         if (aguaReal != null && aguaReal >= 0 && tankCapacity > 0) {
@@ -172,8 +172,23 @@ class _HomeScreenState extends State<HomeScreen>
             _debouncedSetState();
           }
         } else {
-          print(
-              '[UI DEBUG] No se encontró dato de agua almacenada o capacidad inválida');
+          // Fallback: usar porcentaje directo del firmware si no hay agua almacenada
+          final waterPercent = data['water_height'];
+          if (waterPercent != null && waterPercent is num) {
+            final percent = waterPercent.toDouble();
+            if (percent >= 0 && percent <= 100) {
+              final porcentaje = (percent / 100.0).clamp(0.0, 1.0);
+              if (mounted && tankLevel != porcentaje) {
+                tankLevel = porcentaje;
+                print(
+                    '[UI DEBUG] Usando porcentaje directo del firmware: ${percent}% (fallback)');
+                _debouncedSetState();
+              }
+            }
+          } else {
+            print(
+                '[UI DEBUG] No se encontró dato de agua almacenada ni porcentaje directo');
+          }
         }
       } catch (e, stackTrace) {
         print('[UI DEBUG] Error procesando datos del notifier: $e');
@@ -265,7 +280,7 @@ class _HomeScreenState extends State<HomeScreen>
         // Solo cargar si el notifier está vacío o si no tiene datos de energía
         if (globalNotifier.value.isEmpty ||
             !globalNotifier.value.containsKey('energia')) {
-          globalNotifier.value = {...latest};
+          globalNotifier.value = {...latest, 'source': 'MQTT'};
           print('[INIT] Datos previos cargados exitosamente');
           print('[INIT] Datos cargados: ${latest.keys}');
         } else {
@@ -441,78 +456,8 @@ class _HomeScreenState extends State<HomeScreen>
     print('[UI DEBUG] Iniciando toggle de la bomba. Estado actual: $pumpState');
     final startTime = DateTime.now();
 
-    // Verificar condiciones locales antes de enviar comando (solo para encendido)
-    final newState = pumpState == 1 ? 0 : 1;
-
-    if (newState == 1) {
-      // Solo verificar al encender
-      // Verificar nivel de agua mínimo (5%)
-      final settingsBox = Hive.box('settings');
-      final tankCapacity =
-          settingsBox.get('tankCapacity', defaultValue: 1000.0);
-      final waterStored = globalNotifier.value['aguaAlmacenada'];
-
-      if (waterStored != null && tankCapacity > 0) {
-        final waterLiters = (waterStored as num).toDouble();
-        final waterPercent = (waterLiters / tankCapacity) * 100.0;
-
-        if (waterPercent < 5.0) {
-          print(
-              '[UI DEBUG] Verificación local FALLIDA: Nivel de agua insuficiente (${waterPercent.toStringAsFixed(1)}% < 5.0%)');
-          _showPumpErrorDialog(
-              reason: 'low_water',
-              message: 'Nivel de agua insuficiente para activar la bomba');
-          return; // No enviar comando
-        }
-        print(
-            '[UI DEBUG] Verificación local OK: Nivel de agua ${waterPercent.toStringAsFixed(1)}% >= 5.0%');
-      } else {
-        print(
-            '[UI DEBUG] No se puede verificar nivel de agua - datos insuficientes');
-        // Continuar con el comando pero mostrar advertencia
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'No se puede verificar el nivel de agua - procediendo con precaución',
-              style: TextStyle(color: Color(0xFF155263)),
-            ),
-            backgroundColor: Colors.orange,
-            duration: Duration(seconds: 3),
-          ),
-        );
-      }
-
-      // Verificar voltaje mínimo (100V)
-      final voltage = globalNotifier.value['voltaje'];
-      if (voltage != null) {
-        final voltageValue = (voltage as num).toDouble();
-        if (voltageValue < 100.0) {
-          print(
-              '[UI DEBUG] Verificación local FALLIDA: Voltaje insuficiente (${voltageValue}V < 100.0V)');
-          _showPumpErrorDialog(
-              reason: 'low_voltage',
-              message: 'Voltaje insuficiente para activar la bomba');
-          return; // No enviar comando
-        }
-        print(
-            '[UI DEBUG] Verificación local OK: Voltaje ${voltageValue}V >= 100.0V');
-      } else {
-        print('[UI DEBUG] No se puede verificar voltaje - dato no disponible');
-        // Continuar con el comando pero mostrar advertencia
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'No se puede verificar el voltaje - procediendo con precaución',
-              style: TextStyle(color: Color(0xFF155263)),
-            ),
-            backgroundColor: Colors.orange,
-            duration: Duration(seconds: 3),
-          ),
-        );
-      }
-    }
-
     // Actualizar estado local optimistamente
+    final newState = pumpState == 1 ? 0 : 1;
     setState(() {
       pumpState = newState;
     });
@@ -665,30 +610,7 @@ class _HomeScreenState extends State<HomeScreen>
       final colorText = Theme.of(context).colorScheme.onSurface;
       print('[HOME DEBUG] Colores obtenidos del tema');
 
-      // Obtener el nivel del tanque usando capacidad configurada
-      double tankLevel = 0.0;
-      try {
-        final settingsBox = Hive.box('settings');
-        final tankCapacity =
-            settingsBox.get('tankCapacity', defaultValue: 1000.0);
-        print('[HOME DEBUG] Tank capacity: $tankCapacity');
-
-        // Intentar obtener agua almacenada del ESP32
-        final aguaAlmacenada = globalNotifier.value['aguaAlmacenada'];
-        if (aguaAlmacenada != null && tankCapacity > 0) {
-          final aguaLitros = (aguaAlmacenada as num).toDouble();
-          tankLevel = (aguaLitros / tankCapacity).clamp(0.0, 1.0);
-          print('[HOME DEBUG] Tank level calculado: $tankLevel');
-        } else {
-          print(
-              '[HOME DEBUG] No se pudo calcular tank level, aguaAlmacenada: $aguaAlmacenada');
-        }
-      } catch (e) {
-        print('[HOME DEBUG] Error calculando tank level: $e');
-        tankLevel = 0.0;
-      }
-
-      // Actualizar animación de la gota
+      // Actualizar animación de la gota usando el tankLevel actualizado en tiempo real
       try {
         _controller.value = tankLevel;
       } catch (e) {
@@ -819,7 +741,7 @@ class _HomeScreenState extends State<HomeScreen>
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          '${(tankLevel * 100).toStringAsFixed(1)}%',
+                          '${(this.tankLevel * 100).toStringAsFixed(1)}%',
                           style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,
@@ -991,44 +913,6 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 24),
-              // Variables principales del sistema AWG (simplificadas)
-              Wrap(
-                spacing: 16,
-                runSpacing: 16,
-                alignment: WrapAlignment.center,
-                children: [
-                  // === DATOS PRINCIPALES ===
-                  _miniDataCard(
-                      'Temperatura ambiente',
-                      getField(globalNotifier.value, 'temperaturaAmbiente'),
-                      '°C',
-                      Icons.thermostat,
-                      colorAccent,
-                      colorText),
-                  _miniDataCard(
-                      'Humedad relativa',
-                      getField(globalNotifier.value, 'humedadRelativa'),
-                      '%',
-                      Icons.water,
-                      colorAccent,
-                      colorText),
-                  _miniDataCard(
-                      'Humedad absoluta',
-                      getField(globalNotifier.value, 'humedadAbsoluta'),
-                      'g/m³',
-                      Icons.grain,
-                      colorAccent,
-                      colorText),
-                  _miniDataCard(
-                      'Energía',
-                      getField(globalNotifier.value, 'energia'),
-                      'Wh',
-                      Icons.flash_on,
-                      colorAccent,
-                      colorText),
-                ],
               ),
               const SizedBox(height: 24),
             ],

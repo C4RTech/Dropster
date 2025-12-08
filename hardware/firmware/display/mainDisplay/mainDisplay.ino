@@ -1,11 +1,7 @@
 /* ========================================================================================
- * Sistema Dropster AWG (Atmospheric Water Generator) - Interfaz Local
+ * Sistema Dropster AWG (Atmospheric Water Generator) - Interfaz Local v1.0
  * ========================================================================================
- *
  * Descripción: Interfaz de control y monitoreo local del dispositivo Dropster AWG
- *
- * Versión: v1.0
- * Fecha: 8/10/2025
  * ========================================================================================*/
 
 // Librerias
@@ -372,7 +368,6 @@ void lv_create_main_gui(void) {
         lv_label_set_text(name_lbl, names[idx]);
         lv_obj_set_style_text_color(name_lbl, COLOR_DARK, 0);
         lv_obj_set_style_text_font(name_lbl, &lv_font_montserrat_12, 0);
-
         labels[idx] = lv_label_create(cont);
         lv_label_set_text(labels[idx], "--");
         lv_obj_set_style_text_color(labels[idx], COLOR_ACCENT1, 0);
@@ -400,7 +395,6 @@ void lv_create_main_gui(void) {
         lv_label_set_text(name_lbl, names[idx]);
         lv_obj_set_style_text_color(name_lbl, COLOR_DARK, 0);
         lv_obj_set_style_text_font(name_lbl, &lv_font_montserrat_12, 0);
-
         labels[idx] = lv_label_create(cont);
         lv_label_set_text(labels[idx], "--");
         lv_obj_set_style_text_color(labels[idx], COLOR_ACCENT1, 0);
@@ -428,7 +422,6 @@ void lv_create_main_gui(void) {
         lv_label_set_text(name_lbl, names[idx]);
         lv_obj_set_style_text_color(name_lbl, COLOR_DARK, 0);
         lv_obj_set_style_text_font(name_lbl, &lv_font_montserrat_12, 0);
-
         labels[idx] = lv_label_create(cont);
         lv_label_set_text(labels[idx], "--");
         lv_obj_set_style_text_color(labels[idx], COLOR_ACCENT1, 0);
@@ -456,7 +449,6 @@ void lv_create_main_gui(void) {
         lv_label_set_text(name_lbl, names[idx]);
         lv_obj_set_style_text_color(name_lbl, COLOR_DARK, 0);
         lv_obj_set_style_text_font(name_lbl, &lv_font_montserrat_12, 0);
- 
         labels[idx] = lv_label_create(cont);
         lv_label_set_text(labels[idx], "--");
         lv_obj_set_style_text_color(labels[idx], COLOR_ACCENT1, 0);
@@ -557,7 +549,7 @@ void lv_create_main_gui(void) {
     lv_obj_center(label_pump);
 }
 
-void update_labels(float vals[15]) {
+void update_labels(float vals[18]) {
     // Valores ambientales (0..4). Mantener último valor válido si nuevo es NAN.
     for (int i = 0; i <= 4; i++) {
         if (!isnan(vals[i])) {
@@ -640,12 +632,12 @@ void update_labels(float vals[15]) {
         lv_label_set_text(labels[12], "--");
     }
 
-    // Agua almacenada (vals[16])
-    if (!isnan(vals[16])) {
-        lastValidVals[16] = vals[16];
-        lv_label_set_text_fmt(agua_label, "%.2f L", vals[16]);
-    } else if (!isnan(lastValidVals[16])) {
-        lv_label_set_text_fmt(agua_label, "%.2f L", lastValidVals[16]);
+    // Agua almacenada (vals[17])
+    if (!isnan(vals[17])) {
+        lastValidVals[17] = vals[17];
+        lv_label_set_text_fmt(agua_label, "%.2f L", vals[17]);
+    } else if (!isnan(lastValidVals[17])) {
+        lv_label_set_text_fmt(agua_label, "%.2f L", lastValidVals[17]);
     } else {
         lv_label_set_text(agua_label, "-- L");
     }
@@ -826,7 +818,6 @@ void loop() {
                 }
             }
             else if (strncmp(msg, "CTRL:", 5) == 0) {
-                // Mensaje de control recibido - no se imprime para evitar interferencia UART
             }
             else if (strncmp(msg, "BACKLIGHT:", 10) == 0) {
                 char *state = msg + 10;
@@ -872,9 +863,6 @@ void loop() {
                 // Guardar número de campos y rellenar el resto con NAN
                 int fieldCount = idx;
                 for (int i = idx; i < 18; i++) vals[i] = NAN;
-
-                // Depuración deshabilitada para evitar interferencia con comunicación UART
-
                 update_labels(vals);
             }
  

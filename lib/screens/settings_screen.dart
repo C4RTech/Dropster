@@ -19,6 +19,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   double nominalCurrent = 10.0;
   final voltageController = TextEditingController();
   final currentController = TextEditingController();
+  final mqttBrokerController = TextEditingController();
+  final mqttPortController = TextEditingController();
 
   // Configuraciones de la app
   bool isSavingEnabled = true;
@@ -31,7 +33,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String mqttTopic = 'dropster/data';
 
   // Configuración del tanque
-  double tankCapacity = 1000.0; // litros
+  double tankCapacity = 20.0; // litros
   final tankCapacityController = TextEditingController();
 
   // Calibración del tanque
@@ -55,7 +57,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int controlMaxOn = 1800; // segundos
   int controlSampling = 8; // segundos
   double controlAlpha = 0.2; // factor de suavizado
-  double maxCompressorTemp = 100.0; // °C
+  double maxCompressorTemp = 95.0; // °C
+  int displayTimeoutMinutes =
+      0; // Timeout del display en minutos (0 = desactivado)
 
   // Variables para almacenar configuración previa (para detectar cambios)
   String oldMqttBroker = 'test.mosquitto.org';
@@ -72,128 +76,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int oldControlMaxOn = 1800;
   int oldControlSampling = 8;
   double oldControlAlpha = 0.2;
-  double oldMaxCompressorTemp = 100.0;
+  double oldMaxCompressorTemp = 95.0;
+  int oldDisplayTimeoutMinutes = 0;
   bool oldShowNotifications = true;
 
   @override
   void initState() {
     super.initState();
     _loadSettings();
-    // Escuchar cambios en el notifier MQTT para sincronizar valores desde ESP32
-    SingletonMqttService().notifier.addListener(_onMqttDataReceived);
   }
 
   @override
   void dispose() {
-    SingletonMqttService().notifier.removeListener(_onMqttDataReceived);
     voltageController.dispose();
     currentController.dispose();
+    mqttBrokerController.dispose();
+    mqttPortController.dispose();
     tankCapacityController.dispose();
     ultrasonicOffsetController.dispose();
     super.dispose();
-  }
-
-  void _onMqttDataReceived() {
-    final data = SingletonMqttService().notifier.value;
-    setState(() {
-      // Sincronizar temperatura máxima del compresor desde ESP32
-      if (data.containsKey('max_compressor_temp') &&
-          data['max_compressor_temp'] != null) {
-        maxCompressorTemp = (data['max_compressor_temp'] as num).toDouble();
-      }
-
-      // Procesar configuración sincronizada desde ESP32
-      // El ESP32 envía el backup como un JSON completo con type="config_backup"
-      if (data.containsKey('type') && data['type'] == 'config_backup') {
-        try {
-          debugPrint(
-              '[SYNC] 📥 Recibida configuración desde ESP32: ${data.keys}');
-
-          // Sincronizar configuración MQTT
-          if (data.containsKey('mqtt')) {
-            final mqtt = data['mqtt'] as Map<String, dynamic>;
-            if (mqtt.containsKey('broker'))
-              mqttBroker = mqtt['broker'] as String;
-            if (mqtt.containsKey('port'))
-              mqttPort = (mqtt['port'] as num).toInt();
-          }
-
-          // Sincronizar configuración de control
-          if (data.containsKey('control')) {
-            final control = data['control'] as Map<String, dynamic>;
-            if (control.containsKey('deadband'))
-              controlDeadband = (control['deadband'] as num).toDouble();
-            if (control.containsKey('minOff'))
-              controlMinOff = (control['minOff'] as num).toInt();
-            if (control.containsKey('maxOn'))
-              controlMaxOn = (control['maxOn'] as num).toInt();
-            if (control.containsKey('sampling'))
-              controlSampling = (control['sampling'] as num).toInt();
-            if (control.containsKey('alpha'))
-              controlAlpha = (control['alpha'] as num).toDouble();
-          }
-
-          // Sincronizar configuración de alertas
-          if (data.containsKey('alerts')) {
-            final alerts = data['alerts'] as Map<String, dynamic>;
-            if (alerts.containsKey('tankFullEnabled'))
-              tankFullEnabled = alerts['tankFullEnabled'] as bool;
-            if (alerts.containsKey('tankFullThreshold'))
-              tankFullThreshold =
-                  (alerts['tankFullThreshold'] as num).toDouble();
-            if (alerts.containsKey('voltageLowEnabled'))
-              voltageLowEnabled = alerts['voltageLowEnabled'] as bool;
-            if (alerts.containsKey('voltageLowThreshold'))
-              voltageLowThreshold =
-                  (alerts['voltageLowThreshold'] as num).toDouble();
-            if (alerts.containsKey('humidityLowEnabled'))
-              humidityLowEnabled = alerts['humidityLowEnabled'] as bool;
-            if (alerts.containsKey('humidityLowThreshold'))
-              humidityLowThreshold =
-                  (alerts['humidityLowThreshold'] as num).toDouble();
-          }
-
-          // Sincronizar configuración del tanque
-          if (data.containsKey('tank')) {
-            final tank = data['tank'] as Map<String, dynamic>;
-            if (tank.containsKey('capacity'))
-              tankCapacity = (tank['capacity'] as num).toDouble();
-            if (tank.containsKey('isCalibrated'))
-              isCalibrated = tank['isCalibrated'] as bool;
-            if (tank.containsKey('offset'))
-              ultrasonicOffset = (tank['offset'] as num).toDouble();
-
-            // Sincronizar puntos de calibración
-            if (tank.containsKey('calibrationPoints')) {
-              final points = tank['calibrationPoints'] as List<dynamic>;
-              calibrationPoints = points.map((point) {
-                final p = point as Map<String, dynamic>;
-                return {
-                  'distance': (p['distance'] as num).toDouble(),
-                  'liters': (p['liters'] as num).toDouble(),
-                };
-              }).toList();
-            }
-          }
-
-          // Actualizar controladores de texto
-          voltageController.text = nominalVoltage.toStringAsFixed(1);
-          currentController.text = nominalCurrent.toStringAsFixed(1);
-          tankCapacityController.text = tankCapacity.toStringAsFixed(0);
-          ultrasonicOffsetController.text = ultrasonicOffset.toStringAsFixed(1);
-
-          debugPrint('[SYNC] ✅ Configuración sincronizada desde ESP32');
-
-          // Mostrar snackbar de confirmación (removido para evitar problemas de context)
-
-          // Limpiar el backup del notifier para evitar re-procesamiento
-          SingletonMqttService().notifier.value = {...data}..remove('type');
-        } catch (e) {
-          debugPrint(
-              '[SYNC] ❌ Error procesando configuración sincronizada: $e');
-        }
-      }
-    });
   }
 
   Future<void> _loadSettings() async {
@@ -222,7 +123,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       mqttTopic = settingsBox.get('mqttTopic', defaultValue: 'dropster/data');
 
       // Configuración del tanque
-      tankCapacity = settingsBox.get('tankCapacity', defaultValue: 1000.0);
+      tankCapacity = settingsBox.get('tankCapacity', defaultValue: 20.0);
       tankCapacityController.text =
           tankCapacity.toStringAsFixed(tankCapacity < 1 ? 2 : 0);
 
@@ -262,7 +163,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       controlSampling = settingsBox.get('controlSampling', defaultValue: 8);
       controlAlpha = settingsBox.get('controlAlpha', defaultValue: 0.2);
       maxCompressorTemp =
-          settingsBox.get('maxCompressorTemp', defaultValue: 100.0);
+          settingsBox.get('maxCompressorTemp', defaultValue: 95.0);
+      displayTimeoutMinutes =
+          settingsBox.get('displayTimeoutMinutes', defaultValue: 0);
     });
 
     // Asignar configuración previa para detectar cambios
@@ -280,101 +183,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     oldControlMaxOn = controlMaxOn;
     oldControlSampling = controlSampling;
     oldControlAlpha = controlAlpha;
+    oldMaxCompressorTemp = maxCompressorTemp;
+    oldDisplayTimeoutMinutes = displayTimeoutMinutes;
     oldShowNotifications = showNotifications;
-  }
 
-  Future<void> _syncConfigFromESP32() async {
-    if (!mounted) return;
-
-    // Mostrar indicador de carga
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext dialogContext) {
-        return const AlertDialog(
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
-              Text(
-                'Sincronizando configuración...',
-                style: TextStyle(fontSize: 16),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    try {
-      debugPrint('[SYNC] 🚀 Solicitando configuración desde ESP32...');
-
-      // Enviar comando BACKUP_CONFIG al ESP32
-      await SingletonMqttService()
-          .mqttClientService
-          .publishCommand('BACKUP_CONFIG');
-
-      debugPrint(
-          '[SYNC] ✅ Comando BACKUP_CONFIG enviado, esperando respuesta...');
-
-      // Esperar un poco para que llegue la respuesta
-      await Future.delayed(const Duration(seconds: 3));
-
-      // Cerrar diálogo de carga
-      if (mounted && Navigator.canPop(context)) {
-        Navigator.of(context).pop();
-      }
-
-      // Mostrar mensaje de éxito
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (BuildContext successContext) {
-            return AlertDialog(
-              title: const Text('✅ Sincronización completada'),
-              content: const Text(
-                  'La configuración ha sido sincronizada desde el ESP32. Los valores actuales del dispositivo se han cargado en la interfaz.'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(successContext).pop(),
-                  child: const Text('Aceptar'),
-                ),
-              ],
-            );
-          },
-        );
-      }
-
-      debugPrint('[SYNC] ✅ Sincronización completada');
-    } catch (e) {
-      debugPrint('[SYNC] ❌ Error en sincronización: $e');
-
-      // Cerrar diálogo de carga
-      if (mounted && Navigator.canPop(context)) {
-        Navigator.of(context).pop();
-      }
-
-      // Mostrar error
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (BuildContext errorContext) {
-            return AlertDialog(
-              title: const Text('❌ Error de sincronización'),
-              content: Text('No se pudo sincronizar la configuración: $e'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(errorContext).pop(),
-                  child: const Text('Aceptar'),
-                ),
-              ],
-            );
-          },
-        );
-      }
-    }
+    // Inicializar controladores de MQTT
+    mqttBrokerController.text = mqttBroker;
+    mqttPortController.text = mqttPort.toString();
   }
 
   Future<void> _saveSettings() async {
@@ -474,6 +289,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await settingsBox.put('controlSampling', controlSampling);
       await settingsBox.put('controlAlpha', controlAlpha);
       await settingsBox.put('maxCompressorTemp', maxCompressorTemp);
+      await settingsBox.put('displayTimeoutMinutes', displayTimeoutMinutes);
 
       debugPrint('[SETTINGS] ✅ Configuración guardada localmente en Hive');
 
@@ -619,6 +435,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               controlSampling: controlSampling,
               controlAlpha: controlAlpha,
               maxCompressorTemp: maxCompressorTemp,
+              displayTimeoutMinutes: displayTimeoutMinutes * 60,
               showNotifications: showNotifications,
               dailyReportEnabled: dailyReportEnabled,
               dailyReportTime: dailyReportTime,
@@ -660,6 +477,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           oldControlSampling = controlSampling;
           oldControlAlpha = controlAlpha;
           oldMaxCompressorTemp = maxCompressorTemp;
+          oldDisplayTimeoutMinutes = displayTimeoutMinutes;
           oldShowNotifications = showNotifications;
 
           // Mostrar mensaje de éxito
@@ -809,13 +627,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: const Text('Configuración'),
         backgroundColor: colorPrimary,
         foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _syncConfigFromESP32,
-            tooltip: 'Sincronizar configuración desde ESP32',
-          ),
-        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
@@ -905,19 +716,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            SwitchListTile(
-              title: const Text('Guardar datos automáticamente'),
-              subtitle:
-                  const Text('Almacena los datos recibidos en el dispositivo'),
-              value: isSavingEnabled,
-              onChanged: (value) {
-                setState(() {
-                  isSavingEnabled = value;
-                });
-              },
-              activeColor: colorAccent,
-            ),
-            const Divider(),
             ListTile(
               leading: Icon(Icons.delete_sweep, color: colorAccent),
               title: const Text('Borrar todos los datos'),
@@ -961,7 +759,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onChanged: (value) {
                 mqttBroker = value;
               },
-              controller: TextEditingController(text: mqttBroker),
+              controller: mqttBrokerController,
             ),
             const SizedBox(height: 16),
             Row(
@@ -977,8 +775,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onChanged: (value) {
                       mqttPort = int.tryParse(value) ?? 1883;
                     },
-                    controller:
-                        TextEditingController(text: mqttPort.toString()),
+                    controller: mqttPortController,
                   ),
                 ),
               ],
@@ -1072,42 +869,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const Divider(),
 
-            // Offset del sensor ultrasónico
+            // Offset del sensor de nivel
             ListTile(
               leading: Icon(Icons.tune, color: colorAccent),
-              title: const Text('Offset del sensor ultrasónico'),
+              title: const Text('Offset del sensor de nivel'),
               subtitle: Text('${ultrasonicOffset.toStringAsFixed(1)} cm'),
               trailing: const Icon(Icons.arrow_forward_ios, size: 16),
               onTap: _showUltrasonicOffsetDialog,
-            ),
-            const Divider(),
-
-            // Puntos de calibración
-            ExpansionTile(
-              leading: Icon(Icons.list, color: colorAccent),
-              title: const Text('Puntos de calibración'),
-              subtitle: Text('${calibrationPoints.length} puntos configurados'),
-              children: [
-                ...calibrationPoints.asMap().entries.map((entry) {
-                  final index = entry.key;
-                  final point = entry.value;
-                  return ListTile(
-                    title: Text('Punto ${index + 1}'),
-                    subtitle: Text(
-                        '${point['distance']?.toStringAsFixed(1)} cm → ${point['liters']?.toStringAsFixed(1)} L'),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.red),
-                      onPressed: () => _removeCalibrationPoint(index),
-                    ),
-                    onTap: () => _editCalibrationPoint(index),
-                  );
-                }),
-                ListTile(
-                  leading: const Icon(Icons.add, color: Colors.green),
-                  title: const Text('Agregar punto'),
-                  onTap: _addCalibrationPoint,
-                ),
-              ],
             ),
             const Divider(),
           ],
@@ -1280,10 +1048,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             const Divider(),
 
-            // Alerta de temperatura máxima del compresor
+            // Alerta de sobrecalentamiento del compresor
             ListTile(
               title: Text(
-                'Alerta de temperatura máxima del compresor',
+                'Alerta de sobrecalentamiento del compresor',
                 style: const TextStyle(color: Colors.white),
               ),
               subtitle: Text(
@@ -1323,6 +1091,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         },
                         activeColor: colorAccent,
                       ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(),
+
+            // Timeout del display
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.timer_off, color: colorAccent, size: 20),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Timeout del display: ${displayTimeoutMinutes == 0 ? "Desactivado" : "$displayTimeoutMinutes min"}',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      activeTrackColor: colorAccent,
+                      inactiveTrackColor: colorAccent.withOpacity(0.3),
+                      thumbColor: colorAccent,
+                      overlayColor: colorAccent.withOpacity(0.2),
+                      valueIndicatorColor: colorAccent,
+                      valueIndicatorTextStyle: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    child: Slider(
+                      value: displayTimeoutMinutes.toDouble(),
+                      min: 0,
+                      max: 10,
+                      divisions: 10,
+                      label: displayTimeoutMinutes == 0
+                          ? "Desactivado"
+                          : "$displayTimeoutMinutes min",
+                      onChanged: (value) {
+                        setState(() {
+                          displayTimeoutMinutes = value.toInt();
+                        });
+                      },
+                      activeColor: colorAccent,
                     ),
                   ),
                 ],

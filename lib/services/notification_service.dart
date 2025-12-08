@@ -283,12 +283,10 @@ class NotificationService {
         tempAmbiente > TEMP_HIGH_THRESHOLD) {
       await _showTemperatureAlert(tempAmbiente.toDouble());
     }
-
-    // Verificar tanque lleno usando umbral configurable
+// Verificar tanque lleno usando umbral configurable
     if (tankFullEnabled) {
       final aguaAlmacenada = sensorData['aguaAlmacenada'];
-      final tankCapacity =
-          settingsBox.get('tankCapacity', defaultValue: 1000.0);
+      final tankCapacity = 20.0; // Capacidad fija de 20 litros
 
       if (aguaAlmacenada != null && aguaAlmacenada is num && tankCapacity > 0) {
         final aguaLitros = aguaAlmacenada.toDouble();
@@ -453,6 +451,10 @@ class NotificationService {
             notificationTitle = 'Humedad Baja Detectada';
             break;
           // pump_error removido - solo muestra diálogo en UI, no notificación push
+          case 'pump_low_level':
+            title = '🚨 ¡BOMBA APAGADA POR SEGURIDAD!';
+            notificationTitle = 'Bomba Apagada por Nivel Bajo';
+            break;
           case 'voltage_zero':
             title = '⚡ ¡FALLA ELÉCTRICA!';
             notificationTitle = 'Falla Eléctrica Detectada';

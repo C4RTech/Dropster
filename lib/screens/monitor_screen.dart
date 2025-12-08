@@ -89,12 +89,27 @@ class _MonitorScreenState extends State<MonitorScreen>
     final electricalKeys = ['voltaje', 'corriente', 'potencia', 'energia'];
     final isElectrical = electricalKeys.contains(key);
 
+    // Mapeo de claves alternativas para compatibilidad
+    String actualKey = key;
+    if (key == 'aguaAlmacenada') {
+      // Buscar en orden de prioridad: aguaAlmacenada, agua, waterStored, w
+      if (data.containsKey('aguaAlmacenada')) {
+        actualKey = 'aguaAlmacenada';
+      } else if (data.containsKey('agua')) {
+        actualKey = 'agua';
+      } else if (data.containsKey('waterStored')) {
+        actualKey = 'waterStored';
+      } else if (data.containsKey('w')) {
+        actualKey = 'w';
+      }
+    }
+
     // Solo procesar si hay datos reales del MQTT
     if (data.isNotEmpty &&
         data.containsKey('source') &&
         data['source'] == 'MQTT') {
-      if (data.containsKey(key) && data[key] != null) {
-        final value = data[key];
+      if (data.containsKey(actualKey) && data[actualKey] != null) {
+        final value = data[actualKey];
         if (value is num) {
           final doubleValue = value.toDouble();
           // Log detallado para valores eléctricos
