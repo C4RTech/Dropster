@@ -97,13 +97,13 @@ static void event_handler_btn(lv_event_t * e) {
     const char *txt = label ? lv_label_get_text(label) : NULL;
     bool currentlyOn = (txt && strstr(txt, "APAGAR") != NULL);
     if (currentlyOn) {
-      Serial1.println("OFFC"); // Comando para apagar Compresor
+      Serial1.println("off"); // Comando para apagar Compresor
       lv_label_set_text(label, "ENCENDER AWG");
       lv_obj_set_style_bg_color(obj, COLOR_SECONDARY, 0);
       lv_obj_set_style_shadow_color(obj, lv_color_darken(COLOR_SECONDARY, 30), 0);
       ledState = false;
     } else {
-      Serial1.println("ONC");  // Comando para encender Compresor
+      Serial1.println("on");  // Comando para encender Compresor
       lv_label_set_text(label, "APAGAR AWG");
       lv_obj_set_style_bg_color(obj, COLOR_ACCENT1, 0);
       lv_obj_set_style_shadow_color(obj, lv_color_darken(COLOR_ACCENT1, 30), 0);
@@ -121,12 +121,12 @@ static void event_handler_vent(lv_event_t * e) {
     const char *txt = label ? lv_label_get_text(label) : NULL;
     bool currentlyOn = (txt && strstr(txt, "APAGAR") != NULL);
     if (currentlyOn) {
-      Serial1.println("OFFV"); // Comando para apagar FAN Evaporador
+      Serial1.println("offv"); // Comando para apagar FAN Evaporador
       lv_label_set_text(label, "ENCEDER EFAN");
       lv_obj_set_style_bg_color(obj, COLOR_SECONDARY, 0);
       ventState = false;
     } else {
-      Serial1.println("ONV");  // Comando para encender FAN Evaporador
+      Serial1.println("onv");  // Comando para encender FAN Evaporador
       lv_label_set_text(label, "APAGAR EFAN");
       lv_obj_set_style_bg_color(obj, COLOR_ACCENT1, 0);
       ventState = true;
@@ -143,12 +143,12 @@ static void event_handler_comp_fan(lv_event_t * e) {
      const char *txt = label ? lv_label_get_text(label) : NULL;
      bool currentlyOn = (txt && strstr(txt, "APAGAR") != NULL); // "APAGAR CFAN" => actualmente encendido
      if (currentlyOn) {
-       Serial1.println("OFFCF"); // Comando para apagar FAN Compresor
+       Serial1.println("offcf"); // Comando para apagar FAN Compresor
        lv_label_set_text(label, "ENCENDER CFAN");
        lv_obj_set_style_bg_color(obj, COLOR_SECONDARY, 0);
        compFanState = false;
      } else {
-       Serial1.println("ONCF");  // Comando para encender FAN Compresor
+       Serial1.println("oncf");  // Comando para encender FAN Compresor
        lv_label_set_text(label, "APAGAR CFAN");
        lv_obj_set_style_bg_color(obj, COLOR_ACCENT1, 0);
        compFanState = true;
@@ -165,12 +165,12 @@ static void event_handler_pump(lv_event_t * e) {
      const char *txt = label ? lv_label_get_text(label) : NULL;
      bool currentlyOn = (txt && strstr(txt, "APAGAR") != NULL);
      if (currentlyOn) {
-       Serial1.println("OFFB"); // Comando para apagar Bomba de agua
+       Serial1.println("offb"); // Comando para apagar Bomba de agua
        lv_label_set_text(label, "ENCENDER BOMB");
        lv_obj_set_style_bg_color(obj, COLOR_SECONDARY, 0);
        pumpState = false;
      } else {
-       Serial1.println("ONB");  // Comando para encender Bomba de agua
+       Serial1.println("onb");  // Comando para encender Bomba de agua
        lv_label_set_text(label, "APAGAR BOMB");
        lv_obj_set_style_bg_color(obj, COLOR_ACCENT1, 0);
        pumpState = true;
@@ -219,8 +219,14 @@ static void event_handler_wifi_config(lv_event_t * e) {
 
 // Handler para reconectar WiFi y MQTT desde display
 static void event_handler_reconnect(lv_event_t * e) {
-  if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-  Serial1.println("RECONNECT");  // Comando para reconectar WiFi y MQTT
+   if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+   Serial1.println("RECONNECT");  // Comando para reconectar WiFi y MQTT
+}
+
+// Handler para resetear energía desde display
+static void event_handler_reset_energy(lv_event_t * e) {
+   if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+   Serial1.println("reset_energy");  // Comando para resetear energía
 }
 
 const char* names[13] = {
@@ -324,11 +330,11 @@ void lv_create_main_gui(void) {
     lv_obj_set_style_shadow_ofs_y(wifi_config_btn, 1, 0);
 
     lv_obj_t *wifi_config_label = lv_label_create(wifi_config_btn);
-    lv_label_set_text(wifi_config_label, "CONFIG WIFI");
+    lv_label_set_text(wifi_config_label, "WIFI CONFIG");
     lv_obj_set_style_text_color(wifi_config_label, COLOR_DARK, 0);
     lv_obj_set_style_text_font(wifi_config_label, &lv_font_montserrat_14, 0);
     lv_obj_center(wifi_config_label);
-    lv_obj_align_to(wifi_config_btn, data_panel, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
+    lv_obj_align_to(wifi_config_btn, data_panel, LV_ALIGN_OUT_BOTTOM_MID, 0, 20);
 
     // Botón para reconectar WiFi y MQTT
     lv_obj_t *reconnect_btn = lv_button_create(bg);
@@ -345,7 +351,24 @@ void lv_create_main_gui(void) {
     lv_obj_set_style_text_color(reconnect_label, COLOR_DARK, 0);
     lv_obj_set_style_text_font(reconnect_label, &lv_font_montserrat_14, 0);
     lv_obj_center(reconnect_label);
-    lv_obj_align_to(reconnect_btn, wifi_config_btn, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
+    lv_obj_align_to(reconnect_btn, wifi_config_btn, LV_ALIGN_OUT_BOTTOM_MID, 0, 15);
+
+    // Botón para resetear energía
+    lv_obj_t *reset_energy_btn = lv_button_create(bg);
+    lv_obj_set_size(reset_energy_btn, 180, 30);
+    lv_obj_add_event_cb(reset_energy_btn, event_handler_reset_energy, LV_EVENT_CLICKED, NULL);
+    lv_obj_set_style_bg_color(reset_energy_btn, COLOR_SECONDARY, 0);
+    lv_obj_set_style_radius(reset_energy_btn, 16, 0);
+    lv_obj_set_style_shadow_color(reset_energy_btn, lv_color_darken(COLOR_SECONDARY, 20), 0);
+    lv_obj_set_style_shadow_width(reset_energy_btn, 10, 0);
+    lv_obj_set_style_shadow_ofs_y(reset_energy_btn, 1, 0);
+
+    lv_obj_t *reset_energy_label = lv_label_create(reset_energy_btn);
+    lv_label_set_text(reset_energy_label, "RESET ENERGIA");
+    lv_obj_set_style_text_color(reset_energy_label, COLOR_DARK, 0);
+    lv_obj_set_style_text_font(reset_energy_label, &lv_font_montserrat_14, 0);
+    lv_obj_center(reset_energy_label);
+    lv_obj_align_to(reset_energy_btn, reconnect_btn, LV_ALIGN_OUT_BOTTOM_MID, 0, 15);
 
     // Subtítulo 1: VALORES AMBIENTALES (sin Agua almac)
     lv_obj_t *sub1 = lv_label_create(data_panel);

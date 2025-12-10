@@ -16,9 +16,9 @@
 #define MQTT_TOPIC_ERRORS "dropster/errors"       // Mensajes de error
 #define MQTT_TOPIC_SYSTEM "dropster/system"       // Estado general del sistema
 
-// Intervalos de operación (ms) - Optimizados para estabilidad MQTT
+// Intervalos de operación (ms) - Optimizados para estabilidad UART
 #define SENSOR_READ_INTERVAL 2000  // Reducido para lecturas más frecuentes
-#define UART_TRANSMIT_INTERVAL 5000  // Aumentado para evitar buffer UART lleno
+#define UART_TRANSMIT_INTERVAL 5000  // Intervalo para datos de sensores (estados se envían solo al cambiar)
 #define MQTT_TRANSMIT_INTERVAL 5000
 #define HEARTBEAT_INTERVAL 30000     // Reducido a 30s para mejor keep-alive
 #define WIFI_CHECK_INTERVAL 10000
