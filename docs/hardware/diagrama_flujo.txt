@@ -1,0 +1,23 @@
+Placeholder para diagrama_flujo.pdf
+
+Agregue aquí el diagrama de flujo del proceso de generación de agua en formato PDF.
+
+El diagrama debe mostrar:
+- Inicio del proceso
+- Verificación de condiciones ambientales
+- Activación de ventiladores
+- Proceso de refrigeración
+- Condensación del vapor
+- Almacenamiento del agua
+- Monitoreo continuo
+- Estados de error y recuperación
+- Apagado del sistema
+
+Incluir:
+- Decisiones basadas en sensores
+- Acciones de actuadores
+- Estados del sistema
+- Transiciones entre modos
+
+Formato: PDF con flowchart estándar
+Colores: Verde para procesos normales, rojo para errores

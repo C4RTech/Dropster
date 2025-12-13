@@ -1,0 +1,8 @@
+Placeholder para device_front.jpg
+
+Agregue aquí la imagen device_front.jpg con la vista frontal del dispositivo AWG.
+
+Especificaciones recomendadas:
+- Formato: JPG
+- Resolución mínima: 800x600 píxeles
+- Tamaño máximo: 2MB

@@ -1,0 +1,8 @@
+Placeholder para device_side.jpg
+
+Agregue aquí la imagen device_side.jpg con la vista lateral del dispositivo AWG.
+
+Especificaciones recomendadas:
+- Formato: JPG
+- Resolución mínima: 800x600 píxeles
+- Tamaño máximo: 2MB

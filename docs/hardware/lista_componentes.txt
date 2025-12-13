@@ -1,0 +1,47 @@
+Placeholder para lista_componentes.xlsx
+
+Agregue aquí la lista completa de componentes en formato Excel (.xlsx).
+
+La hoja de cálculo debe incluir las siguientes columnas:
+- Referencia
+- Descripción
+- Cantidad
+- Proveedor
+- Número de parte
+- Precio unitario
+- Subtotal
+- Notas
+
+Categorías de componentes:
+1. Microcontroladores y módulos
+   - ESP32 WROVER 32D Dev Kit V3
+   - Módulo WiFi adicional (si aplica)
+
+2. Sensores
+   - BME280 (temperatura, humedad, presión)
+   - SHT30 (temperatura y humedad adicional)
+   - PZEM004T (medición eléctrica)
+   - Sensor ultrasónico (nivel de agua)
+   - Termistor NTC 10k ohm
+
+3. Actuadores
+   - Ventiladores de alta eficiencia
+   - Compresor de refrigeración
+   - Bombas de agua
+   - Válvulas solenoides
+
+4. Pantalla y controles
+   - TFT ILI9341 2.8" táctil
+   - Botones y switches
+
+5. Componentes electrónicos
+   - Resistencias, capacitores, diodos
+   - Reguladores de voltaje
+   - Fusibles y protecciones
+
+6. Estructura y mecánica
+   - Carcasa
+   - Tubos y conexiones
+   - Filtros
+
+Incluir totales y resumen por categorías.

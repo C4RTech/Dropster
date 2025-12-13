@@ -1,0 +1,19 @@
+Placeholder para manual_usuario_awg.pdf
+
+Agregue aquí el manual de usuario completo en formato PDF.
+
+El manual debe incluir las siguientes secciones:
+
+1. Introducción al dispositivo Dropster AWG
+2. Especificaciones técnicas
+3. Instrucciones de instalación y configuración inicial
+4. Guía de operación diaria
+5. Procedimientos de mantenimiento preventivo
+6. Solución de problemas comunes
+7. Especificaciones de seguridad
+8. Garantía y soporte técnico
+9. Contacto del fabricante
+
+Formato recomendado: PDF
+Idioma: Español
+Páginas estimadas: 20-30

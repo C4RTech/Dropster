@@ -1,0 +1,17 @@
+Placeholder para esquema_electrico.pdf
+
+Agregue aquí el diagrama completo del sistema eléctrico en formato PDF.
+
+El esquema debe incluir:
+- Diagrama de alimentación y distribución de potencia
+- Conexiones de sensores (BME280, SHT30, PZEM004T, ultrasónico)
+- Conexiones de actuadores (ventiladores, compresor, bombas)
+- Circuito de control ESP32
+- Conexiones de la pantalla TFT ILI9341
+- Diagrama de red WiFi/MQTT
+- Fusibles y protecciones
+- Conectores y bornes
+
+Formato: PDF vectorial
+Escala: A3 o A4
+Incluir tabla de referencias de componentes

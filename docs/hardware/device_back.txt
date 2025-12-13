@@ -1,0 +1,8 @@
+Placeholder para device_back.jpg
+
+Agregue aquí la imagen device_back.jpg con la vista trasera del dispositivo AWG.
+
+Especificaciones recomendadas:
+- Formato: JPG
+- Resolución mínima: 800x600 píxeles
+- Tamaño máximo: 2MB
