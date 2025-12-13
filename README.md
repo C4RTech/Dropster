@@ -1,4 +1,4 @@
-# Dropster AWG - Sistema de Control y Monitoreo
+# Dropster - Sistema de Control y Monitoreo
 
 [![Flutter](https://img.shields.io/badge/Flutter-3.6+-02569B?logo=flutter)](https://flutter.dev)
 [![Dart](https://img.shields.io/badge/Dart-3.6+-0175C2?logo=dart)](https://dart.dev)
@@ -6,9 +6,182 @@
 [![License](https://img.shields.io/badge/License-Academic-yellow)](LICENSE)
 [![GitHub Release](https://img.shields.io/github/v/release/C4RTech/Dropster)](https://github.com/C4RTech/Dropster/releases)
 
+## 📋 Navegación
+
+- [**Dropster App**](#dropster-app) - Aplicación móvil Flutter
+- [**Dropster AWG**](#dropster-awg) - Dispositivo hardware
+
+---
+
+<a name="dropster-app"></a>
+# 📱 Dropster App
+
 ## Descripción
 
-Dropster es una aplicación móvil desarrollada en Flutter para el control y monitoreo de un sistema AWG (Atmospheric Water Generator). La aplicación permite recibir datos en tiempo real por MQTT, visualizar gráficas históricas, detectar anomalías y gestionar notificaciones. Incluye funcionalidades avanzadas como notificaciones push locales, conectividad automática, y una arquitectura modular basada en features.
+Dropster app es una aplicación móvil desarrollada en Flutter para el control y monitoreo del dispositivo Dropster AWG (Atmospheric Water Generator). La aplicación permite recibir datos en tiempo real por MQTT, visualizar gráficas históricas, detectar anomalías y gestionar notificaciones. Incluye funcionalidades avanzadas como notificaciones push locales, conectividad automática, y una arquitectura modular basada en features.
+
+---
+
+<a name="dropster-awg"></a>
+# ⚙️ Dropster AWG
+
+## Descripción del Dispositivo
+
+Esta sección describe el dispositivo Dropster AWG que es monitoreado y controlado por la aplicación Dropster app.
+
+### Desarrollo del Firmware
+
+El dispositivo utiliza firmware desarrollado en Arduino IDE para microcontroladores ESP32. Existen dos firmwares principales:
+
+#### Firmware AWG (`hardware/firmware/awg/mainAWG/mainAWG.ino`)
+- **Propósito**: Controla el proceso principal de generación de agua.
+- **Funcionalidades**:
+  - Lectura de sensores ambientales (BME280 para temperatura y humedad).
+  - Medición de parámetros eléctricos (PZEM004T para voltaje, corriente y potencia).
+  - Control de actuadores (ventiladores, compresores, bomba de agua).
+  - Comunicación MQTT para envío de datos en tiempo real.
+  - Gestión de estados del sistema (encendido/apagado, modos de operación).
+
+#### Firmware Display (`hardware/firmware/display/mainDisplay/mainDisplay.ino`)
+- **Propósito**: Gestiona la interfaz de usuario en la pantalla táctil integrada.
+- **Funcionalidades**:
+  - Visualización de datos en tiempo real.
+  - Controles manuales del sistema.
+  - Configuración de parámetros.
+  - Interfaz gráfica con LVGL para pantallas TFT ILI9341.
+
+Ambos firmwares se compilan y suben usando Arduino IDE con las librerías especificadas en la sección de configuración.
+
+### Fotos del Dispositivo
+
+![Vista frontal del dispositivo AWG](docs/hardware/device_front.jpg)
+![Vista lateral del dispositivo AWG](docs/hardware/device_side.jpg)
+![Vista trasera del dispositivo AWG](docs/hardware/device_back.jpg)
+
+*Nota: Las imágenes del dispositivo se pueden encontrar en la carpeta [`docs/hardware/`](docs/hardware/).*
+
+### Principio de Funcionamiento
+
+El Atmospheric Water Generator (AWG) es un dispositivo que extrae agua del aire ambiente mediante el proceso de condensación. El principio básico de funcionamiento incluye:
+
+1. **Absorción de Aire**: El dispositivo toma aire del entorno a través de ventiladores.
+2. **Filtración y Refrigeración**: El se enfría para reducir la temperatura por debajo del punto de rocío.
+3. **Condensación**: El vapor de agua en el aire se condensa en gotas de agua líquida.
+4. **Almacenamiento**: El agua purificada se almacena en un tanque interno.
+
+El sistema monitorea variables ambientales (temperatura, humedad), eléctricas (voltaje, corriente, potencia) y del agua (nivel del tanque) para optimizar el proceso y asegurar la calidad del agua producida.
+
+### Firmware
+
+El dispositivo utiliza firmware desarrollado en Arduino IDE para microcontroladores ESP32. Existen dos firmwares principales:
+
+#### Firmware AWG (`hardware/firmware/awg/mainAWG/mainAWG.ino`)
+- **Propósito**: Controla el proceso principal de generación de agua.
+- **Funcionalidades**:
+  - Lectura de sensores ambientales (BME280 para temperatura y humedad).
+  - Medición de parámetros eléctricos (PZEM004T para voltaje, corriente y potencia).
+  - Control de actuadores (ventiladores, compresores, bomba de agua).
+  - Comunicación MQTT para envío de datos en tiempo real.
+  - Gestión de estados del sistema (encendido/apagado, modos de operación).
+
+#### Firmware Display (`hardware/firmware/display/mainDisplay/mainDisplay.ino`)
+- **Propósito**: Gestiona la interfaz de usuario en la pantalla táctil integrada.
+- **Funcionalidades**:
+  - Visualización de datos en tiempo real.
+  - Controles manuales del sistema.
+  - Configuración de parámetros.
+  - Interfaz gráfica con LVGL para pantallas TFT ILI9341.
+
+Ambos firmwares se compilan y suben usando Arduino IDE con las librerías especificadas en la sección de configuración.
+
+### Hardware
+
+El dispositivo Dropster AWG está construido con componentes electrónicos y mecánicos de alta calidad para asegurar un funcionamiento eficiente y duradero.
+
+#### Especificaciones Técnicas
+- **Microcontrolador**: ESP32 WROVER 32D Dev Kit V3 (dual-core, WiFi, Bluetooth)
+- **Sensores**:
+  - BME280: Temperatura, humedad y presión atmosférica
+  - SHT30: Sensor adicional de temperatura y humedad
+  - PZEM004T: Medición de parámetros eléctricos (voltaje, corriente, potencia, energía)
+  - Sensor ultrasónico: Nivel de agua en el tanque
+  - Termistor NTC 10k ohm: Temperatura del compresor.
+- **Actuadores**:
+  - Ventiladores de alta eficiencia
+  - Compresor de refrigeración
+  - Bombas de agua
+- **Pantalla**: TFT ILI9341 de 2.8" táctil
+- **Comunicación**: WiFi 802.11 b/g/n, MQTT para conectividad remota
+- **Alimentación**: 1100V AC con convertidores DC internos
+- **Dimensiones**: 60cm x 40cm x 120cm (aproximadas)
+- **Capacidad del Tanque**: 20 litros
+- **Producción Diaria**: Hasta 15 litros (dependiendo de condiciones ambientales)
+
+#### Manual de Usuario
+El manual completo del usuario se encuentra disponible en [`docs/hardware/manual_usuario_awg.pdf`](docs/hardware/manual_usuario_awg.pdf). Incluye:
+- Instrucciones de instalación y configuración inicial
+- Guía de operación diaria
+- Procedimientos de mantenimiento
+- Solución de problemas comunes
+- Especificaciones de seguridad
+
+#### Información Técnica Adicional
+Para información técnica detallada, incluyendo diagramas de circuito, esquemas eléctricos y documentación de componentes, consulte los archivos en la carpeta [`docs/hardware/`](docs/hardware/):
+- `esquema_electrico.pdf`: Diagrama completo del sistema eléctrico
+- `diagrama_flujo.pdf`: Diagrama de flujo del proceso de generación de agua
+- `lista_componentes.xlsx`: Lista completa de componentes con referencias
+- `calibracion_sensores.md`: Procedimientos de calibración de sensores
+
+### 🔧 Desarrollo con Arduino IDE
+
+Dropster AWG utiliza Arduino IDE para el desarrollo del firmware ESP32, manteniendo un enfoque simple y accesible para el desarrollo embebido.
+
+#### Estructura del Firmware
+```
+hardware/
+├── awg/                           # Firmware del controlador AWG
+│   ├── mainAWG.ino                # Firmware principal AWG (Arduino IDE)
+│   └── config.h                   # Configuración del sistema AWG
+└── display/                       # Firmware de la pantalla táctil
+    └── mainDisplay.ino            # Firmware de la pantalla (Arduino IDE)
+```
+
+#### Instalación de Arduino IDE
+```bash
+# Descargar e instalar Arduino IDE desde:
+# https://www.arduino.cc/en/software
+
+# Instalar las siguientes librerías vía Library Manager:
+# - PubSubClient (MQTT)
+# - ArduinoJson
+# - WiFiManager
+# - BME280
+# - SHT31
+# - PZEM004T
+# - TFT_eSPI
+# - LVGL
+```
+
+#### Compilación del Firmware
+
+**Usando Arduino IDE:**
+1. Abrir el archivo `.ino` correspondiente
+2. Seleccionar la placa "ESP32 Dev Module"
+3. Configurar el puerto COM correcto
+4. Compilar y subir el firmware
+
+**Configuración de librerías específicas:**
+- Para TFT_eSPI: Configurar `User_Setup.h` según la pantalla ILI9341
+- Para LVGL: Ajustar `lv_conf.h` para optimización de memoria
+
+---
+
+**[⬆ Volver al inicio](#dropster---sistema-de-control-y-monitoreo)**
+
+---
+
+<a name="dropster-app"></a>
+# 📱 Dropster App (Continuación)
 
 ## Características Principales
 
@@ -38,15 +211,18 @@ Dropster es una aplicación móvil desarrollada en Flutter para el control y mon
 - Ajustes de visualización de gráficas
 - **Gestión del Ciclo de Vida** de la aplicación
 
+---
+
+**[⬆ Volver al inicio](#dropster---sistema-de-control-y-monitoreo)**
+
 ## Pantallas Implementadas
 
 ### 1. **Pantalla Principal (HomeScreen)**
 - **Ubicación**: `lib/screens/home_screen.dart`
 - **Funcionalidad**: 
-  - Visualización de datos eléctricos en tiempo real
-  - Configuración de valores nominales
-  - Detección automática de anomalías
-  - Indicadores de estado de batería y fuente de datos
+  - Visualización en tiempo real del nivel del tanque del dispositivo Dropster AWG
+  - Control del modo de operación y de los actuadores
+  - Estado de conexion
 
 ### 2. **Pantalla de Conectividad (ConnectivityScreen)**
 - **Ubicación**: `lib/screens/connectivity_screen.dart`
@@ -58,40 +234,35 @@ Dropster es una aplicación móvil desarrollada en Flutter para el control y mon
 ### 3. **Pantalla de Gráficas (GraphScreen)**
 - **Ubicación**: `lib/screens/graph_screen.dart`
 - **Funcionalidad**:
-  - Gráficas de múltiples variables eléctricas
+  - Gráficas de variables de interes (Consumo electrico, Agua generada, Temperatura y  Humedad)
   - Modo tiempo real e histórico
   - Filtros por rango de fechas
-  - Visualización en tabla y gráfica
-  - Zoom y controles de visualización
+  - Control de visualización
 
 ### 4. **Pantalla de Monitoreo (MonitorScreen)**
 - **Ubicación**: `lib/screens/monitor_screen.dart`
 - **Funcionalidad**:
   - Datos organizados por categorías (Ambiente, Eléctrico, Agua)
-  - Visualización de variables específicas del sistema AWG
+  - Visualización de variables específicas del dispositivo Dropster AWG
   - Interfaz con pestañas para mejor organización
 
 ### 5. **Pantalla de Configuración (SettingsScreen)**
 - **Ubicación**: `lib/screens/settings_screen.dart`
 - **Funcionalidad**:
-  - Configuración de valores nominales
+  - Configuración de notificaciones
   - Ajustes de conectividad MQTT
-  - Gestión de almacenamiento y notificaciones
-  - Configuración de gráficas
+  - Gestión de almacenamiento
 
 ### 6. **Pantalla de Información (InfoScreen)**
 - **Ubicación**: `lib/screens/info_screen.dart`
 - **Funcionalidad**:
   - Información sobre la aplicación
-  - Guía de uso detallada
   - Créditos y versión
 
-### 7. **Pantalla Principal Alternativa (DropsterHomeScreen)**
+### 7. **Pantalla de Carga (DropsterHomeScreen)**
 - **Ubicación**: `lib/screens/dropster_home_screen.dart`
 - **Funcionalidad**:
-  - Interfaz alternativa con enfoque en el sistema AWG
-  - Simulación de datos del generador de agua
-  - Control de encendido/apagado del sistema
+  - Pantalla de carga para dar tiempo a la inicializacion y conexion de la app al servidor.
 
 ## Servicios Implementados
 
@@ -149,47 +320,7 @@ Dropster es una aplicación móvil desarrollada en Flutter para el control y mon
 
 ## Configuración del Proyecto
 
-### 🔧 **Desarrollo con Arduino IDE**
-
-Dropster utiliza Arduino IDE para el desarrollo del firmware ESP32, manteniendo un enfoque simple y accesible para el desarrollo embebido.
-
-#### **Estructura del Firmware**
-```
-hardware/
-├── awg/                           # Firmware del controlador AWG
-│   ├── mainAWG.ino                # Firmware principal AWG (Arduino IDE)
-│   └── config.h                   # Configuración del sistema AWG
-└── display/                       # Firmware de la pantalla táctil
-    └── mainDisplay.ino            # Firmware de la pantalla (Arduino IDE)
-```
-
-#### **Instalación de Arduino IDE**
-```bash
-# Descargar e instalar Arduino IDE desde:
-# https://www.arduino.cc/en/software
-
-# Instalar las siguientes librerías vía Library Manager:
-# - PubSubClient (MQTT)
-# - ArduinoJson
-# - WiFiManager
-# - BME280
-# - SHT31
-# - PZEM004T
-# - TFT_eSPI
-# - LVGL
-```
-
-#### **Compilación del Firmware**
-
-**Usando Arduino IDE:**
-1. Abrir el archivo `.ino` correspondiente
-2. Seleccionar la placa "ESP32 Dev Module"
-3. Configurar el puerto COM correcto
-4. Compilar y subir el firmware
-
-**Configuración de librerías específicas:**
-- Para TFT_eSPI: Configurar `User_Setup.h` según la pantalla ILI9341
-- Para LVGL: Ajustar `lv_conf.h` para optimización de memoria
+### 📋 **Dependencias Principales**
 
 ### 📋 **Dependencias Principales**
 
@@ -262,11 +393,11 @@ dev_dependencies:
 ### 📱 **Navegación**
 
 La aplicación utiliza navegación inferior con 6 secciones principales:
-- **Home**: Datos principales y configuración rápida
+- **Home**: Datos principales y control del dispositivo Dropster AWG
 - **Monitoreo**: Datos organizados por categorías
 - **Conectividad**: Gestión de conexiones
 - **Gráficas**: Visualización histórica y tiempo real
-- **Configuración**: Ajustes completos del sistema
+- **Configuración**: Ajustes completos del dispositivo Dropster AWG
 - **Info**: Información y ayuda
 
 ## Características Técnicas
@@ -310,6 +441,10 @@ dropster/
 │   └── display/                       # ESP32 para pantalla táctil
 │       └── codigo_ESP32_PANTALLA.ino  # Firmware pantalla
 ├── docs/                              # Documentación adicional
+│   ├── hardware/                      # Documentación del dispositivo AWG
+│   │   ├── device_front.jpg           # Fotos del dispositivo
+│   │   ├── manual_usuario_awg.pdf     # Manual de usuario
+│   │   └── ...                        # Otros archivos técnicos
 │   └── mqtt_test_guide.md             # Guía de pruebas MQTT
 ├── android/, ios/, linux/, macos/, web/, windows/  # Builds Flutter
 ├── test/                              # Tests Flutter
@@ -330,7 +465,7 @@ Cada feature sigue el patrón de Clean Architecture:
 ### 📝 **Estado Actual - V1.0.0**
 
 **✅ Implementado:**
-- Sistema completo de monitoreo AWG
+- Sistema completo de monitoreo de Dropster AWG
 - Conectividad MQTT con reconexión automática
 - Notificaciones push locales
 - Arquitectura modular por features
@@ -339,7 +474,6 @@ Cada feature sigue el patrón de Clean Architecture:
 - Detección automática de anomalías
 - Reportes diarios automáticos
 - Servicio en segundo plano
-- Gestión del ciclo de vida de la app
 
 ### 🚀 **Próximas Mejoras Planificadas**
 
@@ -393,3 +527,7 @@ Este proyecto es parte de un trabajo de grado para optar por el título de Ingen
 Este proyecto es de carácter académico y educativo. Todos los derechos reservados © 2025 Carlos Guedez.
 
 **Nota**: Este software está diseñado exclusivamente para fines educativos y de investigación. No se permite su uso comercial sin autorización expresa del autor.
+
+---
+
+**[⬆ Volver al inicio](#dropster---sistema-de-control-y-monitoreo)**
