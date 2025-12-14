@@ -81,7 +81,12 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
       return false;
     }
 
-    // El ESP32 debe haber enviado datos recientemente (últimos 30 segundos)
+    // El ESP32 debe estar online (según heartbeat o system messages)
+    if (!SingletonMqttService().esp32ConnectionNotifier.value) {
+      return false;
+    }
+
+    // El ESP32 debe haber enviado datos recientemente (últimos 60 segundos para mayor tolerancia)
     final stats = SingletonMqttService().mqttClientService.getConnectionStats();
     final lastMessageTime = stats['lastMessageTime'];
     if (lastMessageTime == null) {
@@ -92,8 +97,8 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
     final now = DateTime.now();
     final timeSinceLastMessage = now.difference(lastMessage).inSeconds;
 
-    // Consideramos que el ESP32 está conectado si envió datos en los últimos 30 segundos
-    return timeSinceLastMessage <= 30;
+    // Consideramos que el ESP32 está conectado si envió datos en los últimos 60 segundos
+    return timeSinceLastMessage <= 60;
   }
 
   Widget _buildNetworkInfo(String label, String value) {
@@ -169,7 +174,7 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
                     SizedBox(width: 8),
                     Text(
                       fullyConnected
-                          ? 'Conectado (App + ESP32)'
+                          ? 'Conectado'
                           : (isConnected
                               ? 'Conectado (Solo App)'
                               : 'Sin conexión'),
@@ -299,14 +304,6 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
                                         savedMqttPort.toString()),
                                     _buildNetworkInfo(
                                         'Tópico MQTT', savedMqttTopic),
-                                    _buildNetworkInfo(
-                                        'Estado',
-                                        _isFullyConnected()
-                                            ? 'Conectado (App + ESP32)'
-                                            : SingletonMqttService()
-                                                    .mqttConnected
-                                                ? 'Conectado (Solo App)'
-                                                : 'Desconectado'),
                                   ],
                                 ),
                               ),

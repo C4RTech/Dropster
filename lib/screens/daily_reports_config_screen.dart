@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
-import '../services/enhanced_daily_report_service.dart';
+import '../services/enhanced_daily_report_service_refactored.dart';
 
 class DailyReportsConfigScreen extends StatefulWidget {
   const DailyReportsConfigScreen({super.key});
 
   @override
-  State<DailyReportsConfigScreen> createState() => _DailyReportsConfigScreenState();
+  State<DailyReportsConfigScreen> createState() =>
+      _DailyReportsConfigScreenState();
 }
 
 class _DailyReportsConfigScreenState extends State<DailyReportsConfigScreen> {
@@ -25,16 +26,19 @@ class _DailyReportsConfigScreenState extends State<DailyReportsConfigScreen> {
 
   Future<void> _loadConfiguration() async {
     setState(() => _isLoading = true);
-    
+
     try {
       final settingsBox = await Hive.openBox('settings');
-      _dailyReportEnabled = settingsBox.get('dailyReportEnabled', defaultValue: false);
+      _dailyReportEnabled =
+          settingsBox.get('dailyReportEnabled', defaultValue: false);
       final hour = settingsBox.get('dailyReportHour', defaultValue: 20);
       final minute = settingsBox.get('dailyReportMinute', defaultValue: 0);
       _reportTime = TimeOfDay(hour: hour, minute: minute);
-      
-      _serviceStatus = await EnhancedDailyReportService().getServiceStatus();
-      _reportHistory = await EnhancedDailyReportService().getReportHistory();
+
+      _serviceStatus =
+          await EnhancedDailyReportServiceRefactored().getServiceStatus();
+      _reportHistory =
+          await EnhancedDailyReportServiceRefactored().getReportHistory();
     } catch (e) {
       _showErrorSnackBar('Error cargando configuración: $e');
     } finally {
@@ -44,20 +48,21 @@ class _DailyReportsConfigScreenState extends State<DailyReportsConfigScreen> {
 
   Future<void> _saveConfiguration() async {
     setState(() => _isLoading = true);
-    
+
     try {
       final settingsBox = await Hive.openBox('settings');
       await settingsBox.put('dailyReportEnabled', _dailyReportEnabled);
       await settingsBox.put('dailyReportHour', _reportTime.hour);
       await settingsBox.put('dailyReportMinute', _reportTime.minute);
-      
+
       // Programar reporte diario
-      await EnhancedDailyReportService().scheduleDailyReport(_reportTime, _dailyReportEnabled);
-      
+      await EnhancedDailyReportServiceRefactored()
+          .scheduleDailyReport(_reportTime, _dailyReportEnabled);
+
       // Recargar estado
       await _loadConfiguration();
-      
-      _showSuccessSnackBar(_dailyReportEnabled 
+
+      _showSuccessSnackBar(_dailyReportEnabled
           ? 'Reporte diario programado para las ${_reportTime.format(context)}'
           : 'Reporte diario deshabilitado');
     } catch (e) {
@@ -72,7 +77,7 @@ class _DailyReportsConfigScreenState extends State<DailyReportsConfigScreen> {
       context: context,
       initialTime: _reportTime,
     );
-    
+
     if (picked != null && picked != _reportTime) {
       setState(() => _reportTime = picked);
     }
@@ -80,9 +85,9 @@ class _DailyReportsConfigScreenState extends State<DailyReportsConfigScreen> {
 
   Future<void> _testReport() async {
     setState(() => _isLoading = true);
-    
+
     try {
-      await EnhancedDailyReportService().generateCurrentDayReport();
+      await EnhancedDailyReportServiceRefactored().generateCurrentDayReport();
       _showSuccessSnackBar('Reporte de prueba enviado');
     } catch (e) {
       _showErrorSnackBar('Error enviando reporte de prueba: $e');
@@ -96,12 +101,12 @@ class _DailyReportsConfigScreenState extends State<DailyReportsConfigScreen> {
       'Limpiar historial',
       '¿Estás seguro de que quieres borrar todo el historial de reportes? Esta acción no se puede deshacer.',
     );
-    
+
     if (confirmed) {
       setState(() => _isLoading = true);
-      
+
       try {
-        await EnhancedDailyReportService().clearReportHistory();
+        await EnhancedDailyReportServiceRefactored().clearReportHistory();
         await _loadConfiguration();
         _showSuccessSnackBar('Historial de reportes borrado');
       } catch (e) {
@@ -231,7 +236,8 @@ class _DailyReportsConfigScreenState extends State<DailyReportsConfigScreen> {
               Text('Hora programada: $reportTime'),
               if (nextReport != null) ...[
                 const SizedBox(height: 4),
-                Text('Próximo reporte: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.fromMillisecondsSinceEpoch(nextReport))}'),
+                Text(
+                    'Próximo reporte: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.fromMillisecondsSinceEpoch(nextReport))}'),
               ],
             ],
           ],
@@ -360,13 +366,16 @@ class _DailyReportsConfigScreenState extends State<DailyReportsConfigScreen> {
                 itemBuilder: (context, index) {
                   final report = _reportHistory[index];
                   final reportData = report['report'] as Map<String, dynamic>?;
-                  final date = DateTime.fromMillisecondsSinceEpoch(report['date']);
-                  
+                  final date =
+                      DateTime.fromMillisecondsSinceEpoch(report['date']);
+
                   return ListTile(
                     leading: const Icon(Icons.assessment),
-                    title: Text('Reporte - ${DateFormat('dd/MM/yyyy').format(date)}'),
-                    subtitle: reportData != null 
-                        ? Text('Energía: ${reportData['energy']?.toStringAsFixed(1)} Wh | Agua: ${reportData['water']?.toStringAsFixed(1)} L')
+                    title: Text(
+                        'Reporte - ${DateFormat('dd/MM/yyyy').format(date)}'),
+                    subtitle: reportData != null
+                        ? Text(
+                            'Energía: ${reportData['energy']?.toStringAsFixed(1)} Wh | Agua: ${reportData['water']?.toStringAsFixed(1)} L')
                         : const Text('Datos no disponibles'),
                     trailing: const Icon(Icons.arrow_forward_ios),
                     onTap: () => _showReportDetails(report),
@@ -382,9 +391,9 @@ class _DailyReportsConfigScreenState extends State<DailyReportsConfigScreen> {
   void _showReportDetails(Map report) {
     final reportData = report['report'] as Map<String, dynamic>?;
     final date = DateTime.fromMillisecondsSinceEpoch(report['date']);
-    
+
     if (reportData == null) return;
-    
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -394,19 +403,28 @@ class _DailyReportsConfigScreenState extends State<DailyReportsConfigScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              _buildReportDetailRow('Energía', '${reportData['energy']?.toStringAsFixed(1)} Wh'),
-              _buildReportDetailRow('Agua', '${reportData['water']?.toStringAsFixed(1)} L'),
-              _buildReportDetailRow('Eficiencia', '${reportData['efficiency']?.toStringAsFixed(1)} Wh/L'),
-              _buildReportDetailRow('Calificación', reportData['efficiencyRating'] ?? 'N/A'),
-              _buildReportDetailRow('Estado', reportData['systemStatus'] ?? 'N/A'),
+              _buildReportDetailRow(
+                  'Energía', '${reportData['energy']?.toStringAsFixed(1)} Wh'),
+              _buildReportDetailRow(
+                  'Agua', '${reportData['water']?.toStringAsFixed(1)} L'),
+              _buildReportDetailRow('Eficiencia',
+                  '${reportData['efficiency']?.toStringAsFixed(1)} Wh/L'),
+              _buildReportDetailRow(
+                  'Calificación', reportData['efficiencyRating'] ?? 'N/A'),
+              _buildReportDetailRow(
+                  'Estado', reportData['systemStatus'] ?? 'N/A'),
               if (reportData['voltage'] != null)
-                _buildReportDetailRow('Voltaje', '${reportData['voltage']?.toStringAsFixed(1)} V'),
+                _buildReportDetailRow('Voltaje',
+                    '${reportData['voltage']?.toStringAsFixed(1)} V'),
               if (reportData['current'] != null)
-                _buildReportDetailRow('Corriente', '${reportData['current']?.toStringAsFixed(1)} A'),
+                _buildReportDetailRow('Corriente',
+                    '${reportData['current']?.toStringAsFixed(1)} A'),
               if (reportData['temperature'] != null)
-                _buildReportDetailRow('Temperatura', '${reportData['temperature']?.toStringAsFixed(1)} °C'),
+                _buildReportDetailRow('Temperatura',
+                    '${reportData['temperature']?.toStringAsFixed(1)} °C'),
               if (reportData['humidity'] != null)
-                _buildReportDetailRow('Humedad', '${reportData['humidity']?.toStringAsFixed(1)} %'),
+                _buildReportDetailRow('Humedad',
+                    '${reportData['humidity']?.toStringAsFixed(1)} %'),
             ],
           ),
         ),

@@ -1,34 +1,34 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:dropster/screens/home_screen.dart';
 import 'package:dropster/screens/connectivity_screen.dart';
-import 'package:dropster/screens/graph_screen.dart';
 import 'package:dropster/screens/monitor_screen.dart';
+import 'package:dropster/screens/graph_screen.dart';
 import 'package:dropster/screens/settings_screen.dart';
-import 'package:dropster/screens/info_screen.dart';
-import 'package:path_provider/path_provider.dart';
-import 'services/mqtt_hive.dart';
+import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'services/singleton_mqtt_service.dart';
-import 'services/background_service.dart';
-import 'services/background_mqtt_service.dart';
-import 'dart:io' show Platform;
 import 'services/notification_service.dart';
 import 'services/app_lifecycle_service.dart';
-import 'services/daily_report_service.dart';
+import 'services/app_initialization_service.dart';
+import 'services/error_handler_service.dart';
 
-void main() {
+void main() async {
   // Configurar manejo global de errores
   FlutterError.onError = (FlutterErrorDetails details) {
-    print('[GLOBAL ERROR] Flutter error: ${details.exception}');
-    print('[GLOBAL ERROR] Stack trace: ${details.stack}');
+    ErrorHandlerService()
+        .logError('Flutter Error', details.exception, details.stack);
   };
 
-  runZonedGuarded(() {
+  runZonedGuarded(() async {
+    // Inicializar Flutter binding
+    WidgetsFlutterBinding.ensureInitialized();
+
+    // Inicializar Android Alarm Manager para reportes diarios
+    await AndroidAlarmManager.initialize();
+
     runApp(const DropsterApp());
   }, (error, stack) {
-    print('[GLOBAL ERROR] Uncaught error: $error');
-    print('[GLOBAL ERROR] Stack: $stack');
+    ErrorHandlerService().logError('Uncaught Error', error, stack);
   });
 }
 
@@ -131,94 +131,21 @@ class _LoaderScreenState extends State<LoaderScreen>
 
   Future<void> _initApp() async {
     try {
-      // Paso 1: Inicializar Flutter binding
-      setState(() {
-        _loadingMessage = "Preparando aplicación...";
-      });
-      WidgetsFlutterBinding.ensureInitialized();
-      await Future.delayed(const Duration(milliseconds: 500));
+      await AppInitializationService().initializeAll(
+        onProgressUpdate: (message) {
+          setState(() {
+            _loadingMessage = message;
+          });
+        },
+      );
 
-      // Paso 2: Inicializar Hive
-      setState(() {
-        _loadingMessage = "Configurando base de datos...";
-      });
-      final dir = await getApplicationDocumentsDirectory();
-      await Hive.initFlutter(dir.path);
-      await MqttHiveService.initHive();
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      // Paso 3: Inicializar servicio de notificaciones
-      setState(() {
-        _loadingMessage = "Configurando notificaciones...";
-      });
-      print('[APP INIT] Inicializando servicio de notificaciones...');
-      try {
-        await NotificationService().initialize();
-        final hasPermission = await NotificationService().checkPermissions();
-        if (!hasPermission) {
-          await NotificationService().requestPermissions();
-        }
-        print('[APP INIT] Servicio de notificaciones inicializado');
-      } catch (e) {
-        print('[APP INIT] Error inicializando notificaciones: $e');
-      }
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      // Inicializar servicio de reportes diarios
-      setState(() {
-        _loadingMessage = "Configurando reportes diarios...";
-      });
-      print('[APP INIT] Inicializando servicio de reportes diarios...');
-      try {
-        await DailyReportService().initialize();
-        // Cargar configuración de reportes diarios
-        final settingsBox = await Hive.openBox('settings');
-        final dailyReportEnabled =
-            settingsBox.get('dailyReportEnabled', defaultValue: false);
-        if (dailyReportEnabled) {
-          final hour = settingsBox.get('dailyReportHour', defaultValue: 20);
-          final minute = settingsBox.get('dailyReportMinute', defaultValue: 0);
-          final reportTime = TimeOfDay(hour: hour, minute: minute);
-          await DailyReportService().scheduleDailyReport(reportTime, true);
-          print(
-              '[APP INIT] Reporte diario programado para ${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}');
-        }
-        print('[APP INIT] Servicio de reportes diarios inicializado');
-      } catch (e) {
-        print('[APP INIT] Error inicializando reportes diarios: $e');
-      }
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      // Paso 4: Finalización
-      setState(() {
-        _loadingMessage = "¡Listo para comenzar!";
-      });
       await Future.delayed(const Duration(milliseconds: 800));
-
-      print('[APP INIT] Inicialización básica completada');
-
-      // Iniciar servicio de background en Android para mantener MQTT 24/7
-      // TEMPORALMENTE DESHABILITADO COMPLETAMENTE PARA DEBUG
-      /*
-      try {
-        if (Platform.isAndroid) {
-          print('[APP INIT] Iniciando servicio foreground (Android)');
-          await BackgroundServiceManager().initializeMinimalForegroundService();
-          // También inicializar el servicio MQTT para foreground (app) para que tenga su propia instancia
-          // await BackgroundMqttService().initialize(); // Deshabilitado temporalmente
-          print(
-              '[APP INIT] Servicio background iniciado (sin MQTT en background)');
-        }
-      } catch (e) {
-        print('[APP INIT] Error iniciando servicio background: $e');
-      }
-      */
 
       setState(() {
         _initialized = true;
       });
     } catch (e) {
-      print('[APP INIT] Error durante inicialización: $e');
+      ErrorHandlerService().logError('App Initialization', e);
       setState(() {
         _loadingMessage = "Error de inicialización";
       });
@@ -411,7 +338,6 @@ class _MainScreenState extends State<MainScreen> {
     ConnectivityScreen(),
     GraphScreen(),
     SettingsScreen(),
-    InfoScreen(),
   ];
 
   @override
@@ -427,24 +353,14 @@ class _MainScreenState extends State<MainScreen> {
   Future<void> _initializeApp() async {
     if (!_mqttInitialized) {
       try {
-        // Inicializar Hive primero
-        WidgetsFlutterBinding.ensureInitialized();
-        final dir = await getApplicationDocumentsDirectory();
-        await Hive.initFlutter(dir.path);
-        await MqttHiveService.initHive();
-        print('[APP INIT] Hive inicializado correctamente');
+        // Usar el servicio de inicialización unificado
+        await AppInitializationService().initializeBasic();
+        await AppInitializationService().initializeMqtt();
 
-        // Inicializar MQTT con configuración desde Hive
-        print(
-            '[APP INIT] Conectando a broker MQTT con configuración guardada...');
-        await SingletonMqttService().connect();
-        print('[APP INIT] ✅ Conexión MQTT inicializada');
-
-        // El monitoreo de conexión ya se inicia automáticamente en connect()
-        print('[APP INIT] 🔄 Monitoreo de conexión MQTT activado');
+        debugPrint('[APP INIT] 🔄 Monitoreo de conexión MQTT activado');
       } catch (e) {
-        print('[APP INIT] ❌ Error conectando a broker local: $e');
-        print('[APP INIT] ⚠️ MQTT no disponible, app funcionará sin conexión');
+        ErrorHandlerService().logError('MQTT Initialization', e);
+        ErrorHandlerService().handleMqttError(context, e);
       } finally {
         // Marcar como inicializado para que la app funcione
         setState(() {
@@ -488,7 +404,7 @@ class _MainScreenState extends State<MainScreen> {
           items: const [
             BottomNavigationBarItem(
               icon: Icon(Icons.home),
-              label: 'Home',
+              label: 'Inicio',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.monitor),
@@ -504,11 +420,7 @@ class _MainScreenState extends State<MainScreen> {
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.settings),
-              label: 'Configuración',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.info),
-              label: 'Info',
+              label: 'Ajustes',
             ),
           ],
         ),

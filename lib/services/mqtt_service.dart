@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
@@ -59,6 +60,13 @@ class MqttService {
   Stream<Map<String, dynamic>> get pumpErrorStream =>
       _pumpErrorController.stream;
 
+  /// Función helper para logs condicionales (solo en debug mode)
+  void _log(String message) {
+    if (kDebugMode) {
+      debugPrint('[MQTT] $message');
+    }
+  }
+
   /// Devuelve true si el cliente está conectado al broker
   bool get isConnected =>
       client?.connectionStatus?.state == MqttConnectionState.connected;
@@ -104,16 +112,16 @@ class MqttService {
           ? now.difference(_lastMessageTime!).inSeconds
           : null;
 
-      debugPrint(
-          '[MQTT STATUS] Estado: ${isConnected ? 'CONECTADO' : 'DESCONECTADO'} | Broker: $broker:$port | Topic: $topic');
-      debugPrint(
-          '[MQTT STATUS] Último mensaje: ${_lastMessageTime ?? 'Nunca'} | Segundos sin mensaje: $timeSinceLastMessage');
+      _log(
+          'Estado: ${isConnected ? 'CONECTADO' : 'DESCONECTADO'} | Broker: $broker:$port | Topic: $topic');
+      _log(
+          'Último mensaje: ${_lastMessageTime ?? 'Nunca'} | Segundos sin mensaje: $timeSinceLastMessage');
 
       if (!isConnected && !_isReconnecting) {
-        debugPrint(
-            '[MQTT RECONNECT] ⚠️ Conexión perdida detectada, iniciando reconexión automática...');
-        debugPrint(
-            '[MQTT RECONNECT] 📊 Estadísticas: Intentos=${_reconnectAttempts}, Última conexión=${_lastSuccessfulConnection ?? 'Nunca'}');
+        _log(
+            '⚠️ Conexión perdida detectada, iniciando reconexión automática...');
+        _log(
+            '📊 Estadísticas: Intentos=${_reconnectAttempts}, Última conexión=${_lastSuccessfulConnection ?? 'Nunca'}');
         _attemptReconnect();
       } else if (isConnected &&
           timeSinceLastMessage != null &&
@@ -581,8 +589,7 @@ class MqttService {
       // Actualizar timestamp del último mensaje
       _lastMessageTime = DateTime.now();
 
-      debugPrint(
-          '[MQTT DEBUG] Mensaje recibido en tópico $topicReceived: $payload');
+      _log('Mensaje recibido en tópico $topicReceived');
 
       try {
         // Si el mensaje es del tópico esperado (datos)
@@ -631,6 +638,21 @@ class MqttService {
             } catch (e) {
               debugPrint(
                   '[MQTT DEBUG] Error procesando confirmación de configuración: $e');
+            }
+          }
+          // Procesar heartbeat del ESP32 (system_status)
+          else if (payload.contains('"type":"system_status"')) {
+            try {
+              final jsonData = jsonDecode(payload);
+              if (jsonData is Map<String, dynamic> &&
+                  jsonData['type'] == 'system_status') {
+                debugPrint(
+                    '[MQTT HEARTBEAT] 💓 Heartbeat recibido del ESP32 - uptime: ${jsonData['uptime']}');
+                // Marcar ESP32 como online
+                SingletonMqttService().esp32ConnectionNotifier.value = true;
+              }
+            } catch (e) {
+              debugPrint('[MQTT DEBUG] Error procesando heartbeat: $e');
             }
           } else {
             try {
@@ -864,7 +886,7 @@ class MqttService {
     }
   }
 
-  /// Enviar configuración completa (MQTT + alertas + calibración + control) al ESP32 con confirmación
+  /// Enviar configuración completa (MQTT + alertas + control) al ESP32 con confirmación
   Future<void> sendFullConfigToESP32({
     required String broker,
     required int port,
@@ -877,7 +899,6 @@ class MqttService {
     required bool humidityLowEnabled,
     required double tankCapacity,
     required bool isCalibrated,
-    required List<Map<String, double>> calibrationPoints,
     required double ultrasonicOffset,
     required double controlDeadband,
     required int controlMinOff,
@@ -933,12 +954,6 @@ class MqttService {
             'cap': formatValue(tankCapacity), // capacity
             'cal': isCalibrated, // calibrated
             'off': formatValue(ultrasonicOffset), // offset
-            'pts': calibrationPoints
-                .map((point) => {
-                      'd': formatValue(point['distance'] ?? 0.0), // distance
-                      'l': formatValue(point['liters'] ?? 0.0), // liters
-                    })
-                .toList(),
           },
         };
 
@@ -1140,11 +1155,11 @@ class MqttService {
       // Procesar mensajes de estado del sistema (online/offline)
       if (payload.contains('ONLINE')) {
         debugPrint('[MQTT SYSTEM] ESP32 reporta estado ONLINE');
-        // Actualizar notifier con estado de conexión
-        SingletonMqttService().connectionNotifier.value = true;
+        // Actualizar notifier con estado de conexión del ESP32
+        SingletonMqttService().esp32ConnectionNotifier.value = true;
       } else if (payload.contains('OFFLINE')) {
         debugPrint('[MQTT SYSTEM] ESP32 reporta estado OFFLINE');
-        SingletonMqttService().connectionNotifier.value = false;
+        SingletonMqttService().esp32ConnectionNotifier.value = false;
       }
     } catch (e) {
       debugPrint('[MQTT DEBUG] Error procesando datos de sistema: $e');

@@ -280,9 +280,18 @@ class _GraphScreenState extends State<GraphScreen> {
         return inRange;
       }).toList();
 
+      // Deduplicar por timestamp para evitar múltiples valores en el mismo instante
+      final map = <int, Map<String, dynamic>>{};
+      for (final item in filtered) {
+        final ts = _getTimestamp(item);
+        if (ts > 0) map[ts] = item;
+      }
+      final deduped = map.values.toList();
+      deduped.sort((a, b) => _getTimestamp(a).compareTo(_getTimestamp(b)));
+
       print(
-          '[GRAPH DEBUG] 📊 Datos filtrados: ${filtered.length} de ${all.length}');
-      return filtered;
+          '[GRAPH DEBUG] 📊 Datos filtrados y deduplicados: ${deduped.length} de ${all.length}');
+      return deduped;
     } catch (e) {
       print('[GRAPH DEBUG] ❌ Error obteniendo datos de Hive: $e');
       return [];
@@ -450,9 +459,20 @@ class _GraphScreenState extends State<GraphScreen> {
         enabledColors.add(color);
       }
 
-      List<double> xTicks = [];
-      if (seriesSpots.isNotEmpty && seriesSpots[0].isNotEmpty) {
-        xTicks = seriesSpots[0].map((e) => e.x).toList();
+      // Calcular xTicks de todas las series para incluir rangos completos
+      List<double> xTicks =
+          seriesSpots.expand((lst) => lst.map((s) => s.x)).toList();
+
+      // Calcular minX y maxX con padding para evitar que líneas se salgan
+      double minX =
+          xTicks.isNotEmpty ? xTicks.reduce((a, b) => a < b ? a : b) : 0;
+      double maxX =
+          xTicks.isNotEmpty ? xTicks.reduce((a, b) => a > b ? a : b) : 0;
+      if (minX != maxX) {
+        double range = maxX - minX;
+        double padding = range * 0.01; // 1% padding
+        minX -= padding;
+        maxX += padding;
       }
 
       final hasAnyData = seriesSpots.any((lst) => lst.isNotEmpty);
@@ -477,7 +497,8 @@ class _GraphScreenState extends State<GraphScreen> {
         elevation: 4,
         margin: EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         child: Padding(
-          padding: const EdgeInsets.only(top: 12, bottom: 2, left: 6, right: 6),
+          padding:
+              const EdgeInsets.only(top: 12, bottom: 2, left: 6, right: 20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -637,8 +658,8 @@ class _GraphScreenState extends State<GraphScreen> {
                             ),
                             handleBuiltInTouches: true,
                           ),
-                          minX: xTicks.isNotEmpty ? xTicks.first : 0,
-                          maxX: xTicks.isNotEmpty ? xTicks.last : 0,
+                          minX: minX,
+                          maxX: maxX,
                           minY: minY,
                           maxY: maxY,
                         ),
@@ -751,8 +772,8 @@ class _GraphScreenState extends State<GraphScreen> {
     final timeRange = Duration(milliseconds: range.toInt());
 
     // Calcular número óptimo de etiquetas basado en el ancho disponible
-    // Para evitar solapamiento, máximo 5-6 etiquetas
-    const maxLabels = 5;
+    // Para evitar solapamiento, máximo 4 etiquetas
+    const maxLabels = 4;
     final optimalInterval = range / maxLabels;
 
     // Ajustar el intervalo basado en el rango de tiempo para mantener legibilidad

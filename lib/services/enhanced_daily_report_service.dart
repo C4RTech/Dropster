@@ -408,10 +408,7 @@ El sistema no registró actividad durante este período. Verifica la conexión y
 
 ⚡ Energía: ${energy.toStringAsFixed(1)} Wh
 💧 Agua: ${water.toStringAsFixed(1)} L
-📈 Eficiencia: ${efficiency.toStringAsFixed(1)} Wh/L ($efficiencyRating)
-🔧 Estado: $systemStatus
-
-${_getStatusEmoji(systemStatus)} ${_getStatusMessage(systemStatus)}''';
+📈 Eficiencia: ${efficiency.toStringAsFixed(1)} Wh/L ($efficiencyRating)''';
   }
 
   /// Obtener emoji de estado

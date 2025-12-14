@@ -1,12 +1,6 @@
-/* ========================================================================================
- *          Sistema Dropster AWG (Atmospheric Water Generator) - Firmware v1.0
- * ========================================================================================
- * Sistema de control completo para generador de agua atmosférico con monitoreo de sensores,
- * control automático, comunicación MQTT y display LCD TFT.
- * ========================================================================================*/
-// ========================================================================================
+// Sistema Dropster AWG - Firmware v1.0
+
 // 1. INCLUDES Y LIBRERÍAS
-// ========================================================================================
 #include <Wire.h>             // Comunicación I2C para sensores
 #include <math.h>             // Funciones matemáticas
 #include <WiFi.h>             // Conectividad WiFi
@@ -23,81 +17,58 @@
 #include <driver/ledc.h>      // Control PWM LEDC directo (ESP-IDF) para LED RGB
 #include <nvs_flash.h>        // Inicialización de NVS para evitar errores de calibración RF
 #include "config.h"           // Archivo de configuración con pines y constantes
-// ========================================================================================
+
 // 2. INSTANCIAS GLOBALES Y CONFIGURACIÓN INICIAL
-// ========================================================================================
 // Gestión de conectividad
-WiFiClient espClient;                // Cliente WiFi para MQTT
-PubSubClient mqttClient(espClient);  // Cliente MQTT
+WiFiClient espClient;
+PubSubClient mqttClient(espClient);
 
 // Hardware del sistema
-RTC_DS3231 rtc;                          // Reloj de tiempo real
-bool rtcAvailable = false;               // Estado del RTC (evita llamadas repetidas)
-Preferences preferences;                 // Almacenamiento persistente en flash
-NewPing sonar(TRIG_PIN, ECHO_PIN, 400);  // Sensor ultrasónico (400cm máximo)
-// ========================================================================================
+RTC_DS3231 rtc;
+bool rtcAvailable = false;  // Estado del RTC para evitar llamadas repetidas
+Preferences preferences;
+NewPing sonar(TRIG_PIN, ECHO_PIN, 400);
+
 // 3. VARIABLES GLOBALES DEL SISTEMA
-// ========================================================================================
-// Configuración de logging
-int logLevel = LOG_INFO;  // Nivel de detalle de logs
+int logLevel = LOG_INFO;
+unsigned long configPortalTimeout = 0;
+unsigned long portalStartTime = 0;
+bool systemReady = false;
+bool buttonPressedLast = HIGH;
+float smoothedDistance = 0.0;
+bool firstDistanceReading = true;
+bool offlineMode = false;
+bool portalActive = false;
+bool sensorFailure = false;
+bool configPortalForceActive = false;
+bool isProcessingCommand = false;
+unsigned long lastCommandTime = 0;
+String lastProcessedCommand = "";
+String configFragments[CONFIG_FRAGMENT_COUNT];
+bool fragmentsReceived[CONFIG_FRAGMENT_COUNT] = {false, false, false, false};
+unsigned long configAssembleTimeout = 0;
+unsigned long systemStartTime = 0;
+unsigned int rebootCount = 0;
+unsigned long totalUptime = 0;
+unsigned int mqttReconnectCount = 0;
+unsigned int wifiReconnectCount = 0;
+unsigned long lastSensorRecoveryCheck = 0;
+String mqttBroker = MQTT_BROKER;
+int mqttPort = MQTT_PORT;
 
-// Estado del sistema
-unsigned long configPortalTimeout = 0;  // Timeout para portal de configuración
-unsigned long portalStartTime = 0;      // Tiempo de inicio del portal de configuración
-bool systemReady = false;               // Flag para saber si el sistema está listo
-bool buttonPressedLast = HIGH;          // Estado anterior del botón para detectar flanco
-float smoothedDistance = 0.0;           // Distancia suavizada del sensor ultrasónico
-bool firstDistanceReading = true;       // Flag para inicialización del suavizado
-bool offlineMode = false;               // Flag para modo offline
-bool portalActive = false;              // Indica portal de configuración activo
-bool sensorFailure = false;             // Flag global de falla de sensores
-bool configPortalForceActive = false;   // Flag para mantener portal activo hasta guardar
+// Modos de operación
+enum OperationMode { MODE_MANUAL = 0, MODE_AUTO_PID = 1, MODE_AUTO_TIME = 2 };
+OperationMode operationMode = MODE_MANUAL;
+enum SelectedAutoMode { AUTO_MODE_PID = 0, AUTO_MODE_TIME = 1 };
+SelectedAutoMode selectedAutoMode = AUTO_MODE_PID;
+bool forceStartOnModeSwitch = false;
 
-// Sistema de manejo de concurrencia (evita comandos simultáneos)
-bool isProcessingCommand = false;   // Flag de procesamiento de comando activo
-unsigned long lastCommandTime = 0;  // Timestamp del último comando
-String lastProcessedCommand = "";   // Último comando procesado (evita duplicados)
-
-// Sistema de ensamblaje de configuración fragmentada
-String configFragments[CONFIG_FRAGMENT_COUNT];                                // Almacena las 4 partes del JSON fragmentado
-bool fragmentsReceived[CONFIG_FRAGMENT_COUNT] = {false, false, false, false}; // Flags para saber qué partes llegaron
-unsigned long configAssembleTimeout = 0;                                      // Timeout para el ensamblaje
-
-// Estadísticas del sistema (métricas de funcionamiento)
-unsigned long systemStartTime = 0;    // Timestamp de inicio del sistema
-unsigned int rebootCount = 0;         // Número de reinicios
-unsigned long totalUptime = 0;        // Tiempo total de funcionamiento
-unsigned int mqttReconnectCount = 0;  // Conteo de reconexiones MQTT
-unsigned int wifiReconnectCount = 0;  // Conteo de reconexiones WiFi
-
-// Sistema de recuperación automática de sensores
-unsigned long lastSensorRecoveryCheck = 0;  // Última verificación de recuperación
-
-// Configuración MQTT (broker y puerto configurables desde la app)
-String mqttBroker = "test.mosquitto.org";  // Broker MQTT
-int mqttPort = 1883;                       // Puerto MQTT
-
-// Modos de operación del sistema
-enum OperationMode { MODE_MANUAL = 0,
-                      MODE_AUTO_PID = 1,
-                      MODE_AUTO_TIME = 2 };
-OperationMode operationMode = MODE_MANUAL;  // Modo actual (MANUAL por defecto)
-
-// Modo automático seleccionado (cuál usar cuando se ejecute "MODE AUTO")
-enum SelectedAutoMode { AUTO_MODE_PID = 0,
-                        AUTO_MODE_TIME = 1 };
-SelectedAutoMode selectedAutoMode = AUTO_MODE_PID;  // Por defecto PID
-
-// Flags de comportamiento del control automático
-bool forceStartOnModeSwitch = false;  // Permite arranque inmediato al cambiar a AUTO
-
-// Parámetros del algoritmo de control automático
-// El control automático mantiene la temperatura del evaporador cerca del punto de rocío, usando una banda muerta (deadband) para evitar oscilaciones
-float control_deadband = CONTROL_DEADBAND_DEFAULT;  // Banda muerta alrededor del punto de rocío (°C)
-int control_min_off = CONTROL_MIN_OFF_DEFAULT;      // Tiempo mínimo de apagado antes de rearranque (s)
-int control_max_on = CONTROL_MAX_ON_DEFAULT;        // Tiempo máximo de funcionamiento continuo (s)
-int control_sampling = CONTROL_SAMPLING_DEFAULT;    // Intervalo de muestreo del control (s)
-float control_alpha = CONTROL_ALPHA_DEFAULT;        // Factor de suavizado exponencial (0-1, menor = más suavizado)
+// Parámetros de control automático - mantiene temp evaporador cerca del punto de rocío
+float control_deadband = CONTROL_DEADBAND_DEFAULT;
+int control_min_off = CONTROL_MIN_OFF_DEFAULT;
+int control_max_on = CONTROL_MAX_ON_DEFAULT;
+int control_sampling = CONTROL_SAMPLING_DEFAULT;
+float control_alpha = CONTROL_ALPHA_DEFAULT;
 
 // Offsets para control automático del ventilador del compresor
 float compressorFanTempOnOffset = COMPRESSOR_FAN_TEMP_ON_OFFSET_DEFAULT;    // Offset para encender ventilador (°C)
@@ -137,8 +108,8 @@ int evapFanMinOff = EVAP_FAN_MIN_OFF_DEFAULT;      // Tiempo mínimo de apagado 
 int evapFanMaxOn = EVAP_FAN_MAX_ON_DEFAULT;        // Tiempo máximo de funcionamiento continuo (s)
 
 // Parámetros del modo automático por tiempo
-int timeModeCompressorOnTime = 900;   // Tiempo encendido del compresor en modo tiempo (s, por defecto 15 min)
-int timeModeCompressorOffTime = 450;  // Tiempo apagado del compresor en modo tiempo (s, por defecto 7.5 min)
+int timeModeCompressorOnTime = TIME_MODE_COMPRESSOR_ON_TIME_DEFAULT;   // Tiempo encendido del compresor en modo tiempo (s)
+int timeModeCompressorOffTime = TIME_MODE_COMPRESSOR_OFF_TIME_DEFAULT;  // Tiempo apagado del compresor en modo tiempo (s)
 unsigned long timeModeCycleStart = 0; // Timestamp de inicio del ciclo actual en modo tiempo
 bool timeModeCompressorState = false; // Estado deseado del compresor en modo tiempo
 
@@ -162,7 +133,7 @@ float lastValidDistance = NAN;  // Última distancia válida medida
 float tankCapacityLiters = TANK_CAPACITY_DEFAULT;  // Capacidad total del tanque en litros
 
 // Configuración del Display
-unsigned int screenTimeoutSec = 0; // Timeout de reposo de la pantalla (segundos). 0 = deshabilitado
+unsigned int screenTimeoutSec = SCREEN_TIMEOUT_DEFAULT; // Timeout de reposo de la pantalla (segundos). 0 = deshabilitado
 unsigned long lastScreenActivity = 0;
 bool backlightOn = true;
 
@@ -182,8 +153,6 @@ static bool lastSentVentOn = false;
 static bool lastSentCompFanOn = false;
 static bool lastSentPumpOn = false;
 static String lastSentMode = "";
-
-// Variables para monitoreo automático de sensores
 unsigned long lastSensorStatusCheck = 0;  // Última verificación de estado de sensores
 
 // Protección del compresor
@@ -192,48 +161,39 @@ unsigned long compressorProtectionStart = 0;    // Timestamp de inicio de protec
 float compressorMaxCurrent = 0.0f;              // Corriente máxima medida durante protección
 unsigned long compressorRetryDelayStart = 0;    // Timestamp de inicio del retraso de reintento
 bool compressorTempProtectionActive = false;    // Flag de protección por temperatura activa
-// ========================================================================================
+
 // 4. DECLARACIONES ANTICIPADAS DE FUNCIONES
-// ========================================================================================
 // Configuración del sistema
-void setupWiFi();        // Configuración de conectividad WiFi
-void setupMQTT();        // Configuración del cliente MQTT
-void connectMQTT();      // Conexión al broker MQTT
-void reconnectSystem();  // Reconexión eficiente de WiFi y MQTT
-void loadMqttConfig();   // Carga configuración MQTT desde memoria
-void loadAlertConfig();  // Carga configuración de alertas
-void loadSystemStats();  // Carga estadísticas del sistema
-void saveSystemStats();  // Guarda estadísticas del sistema
-void saveAlertConfig();  // Guarda configuración de alertas
-void saveWiFiCredentials(String ssid, String password);  // Guarda credenciales WiFi
-bool loadWiFiCredentials(String& ssid, String& password); // Carga credenciales WiFi
+void setupWiFi();
+void setupMQTT();
+void connectMQTT();
+void reconnectSystem();
+void loadMqttConfig();
+void loadAlertConfig();
+void loadSystemStats();
+void saveSystemStats();
+void saveAlertConfig();
+void saveWiFiCredentials(String ssid, String password);
+bool loadWiFiCredentials(String& ssid, String& password);
 
 // Comunicación y logging
-void onMqttMessage(char* topic, byte* payload, unsigned int length);  // Callback MQTT
-void awgLog(int level, const String& message);                        // Función de logging
-String getSystemStateJSON();                                          // Estado del sistema en formato JSON
+void onMqttMessage(char* topic, byte* payload, unsigned int length);
+void awgLog(int level, const String& message);
+String getSystemStateJSON();
 
 // Control de actuadores
-void setVentiladorState(bool newState);     // Control del ventilador
-void setCompressorFanState(bool newState);  // Control del ventilador del compresor
-void setPumpState(bool newState);           // Control de la bomba con validaciones
-void publishState();                        // Publica estados actuadores + modo por UART y MQTT
-void handleCompressorProtection();          // Manejo de protección del compresor
+void setVentiladorState(bool newState);
+void setCompressorFanState(bool newState);
+void setPumpState(bool newState);
+void publishState();
+void handleCompressorProtection();
 
 // Sistema de alertas
-void sendAlert(String type, String message, float value);  // Envía alerta por MQTT
-void checkAlerts();                                        // Verifica condiciones de alerta
+void sendAlert(String type, String message, float value);
+void checkAlerts();
 
-// Comunicación con display
-
-// Función común para publicar estado de actuadores (UART + MQTT)
-void publishState();
-
-// Función helper para asegurar conexión MQTT
-bool ensureMqttConnected();
-
-// Función para inicializar pines de relés
-void initRelays();
+bool ensureMqttConnected(); // Función helper para asegurar conexión MQTT
+void initRelays();          // Función para inicializar pines de relés
 
 // Funciones helper para logs comunes
 void logInfo(const String& message);
@@ -241,24 +201,19 @@ void logWarning(const String& message);
 void logError(const String& message);
 void logDebug(const String& message);
 
-// Declaraciones anticipadas para el control del LED RGB para evitar errores de compilación
+// Declaraciones anticipadas para el control del LED RGB
 enum RGBLedState { LED_OFF = 0, LED_GREEN, LED_BLUE, LED_YELLOW, LED_RED, LED_RED_BLINK, LED_ORANGE, LED_WHITE };
-RGBLedState currentLedState = LED_OFF; // estado global del LED (definido aquí)
+RGBLedState currentLedState = LED_OFF;
 void ledInit();
 void setLedColor(uint8_t r, uint8_t g, uint8_t b);
 void updateLedState();
-// ========================================================================================
+
 // 5. FUNCIONES DE COMUNICACIÓN Y UTILIDADES
-// ========================================================================================
-// Función para reconectar WiFi y MQTT de forma eficiente (usada en inicialización y comando reconnect)
+// Reconecta WiFi y MQTT eficientemente
 void reconnectSystem() {
   if (WiFi.status() != WL_CONNECTED) {
     setupWiFi();
-    // Pequeño delay para permitir conexión inicial (no bloqueante para el sistema completo)
     delay(500);
-    if (WiFi.status() == WL_CONNECTED) {
-      logWiFiConnected();
-    }
   } else {
     logInfo( "WiFi ya conectado");
   }
@@ -271,20 +226,19 @@ void reconnectSystem() {
   }
 }
 
-
 void sendAlert(String type, String message, float value) {
-  if (!ensureMqttConnected()) {
-    logWarning( "MQTT no conectado, no se puede enviar alerta: " + type);
-    return;
-  }
-  logDebug( "📤 Preparando envío de alerta: " + type + " - Valor: " + String(value, 2));
+   if (!ensureMqttConnected()) {
+     logWarning("MQTT no conectado, no se puede enviar alerta: " + type);
+     return;
+   }
+   logDebug("Preparando envío de alerta: " + type + " - Valor: " + String(value, 2));
 
-  // Función para convertir floats a strings con exactamente 2 decimales
-  auto floatToString2Decimals = [](float value) -> String {
-    char buffer[20];
-    dtostrf(value, 1, 2, buffer);
-    return String(buffer);
-  };
+   // Convierte floats a strings con 2 decimales
+   auto floatToString2Decimals = [](float value) -> String {
+     char buffer[20];
+     dtostrf(value, 1, 2, buffer);
+     return String(buffer);
+   };
 
   // Crear documento JSON con información de la alerta
   StaticJsonDocument<STATUS_JSON_SIZE> doc;
@@ -304,14 +258,7 @@ void sendAlert(String type, String message, float value) {
   char buffer[200];
   size_t len = serializeJson(doc, buffer, sizeof(buffer));
   if (len > 0) {
-    logDebug( "📡 Enviando alerta MQTT al topic " + String(MQTT_TOPIC_ALERTS) + ": " + String(buffer));
     mqttClient.publish(MQTT_TOPIC_ALERTS, buffer, true);  // QoS 1 para asegurar entrega
-    logDebug( "✅ Alerta enviada exitosamente: " + type + " - " + String(value, 2));
-
-    // Log específico para debug de humedad baja
-    if (type == "humidity_low") {
-      logDebug( "💨 ALERTA HUMEDAD BAJA enviada - Valor: " + String(value, 2) + "%, Mensaje: " + message);
-    }
     mqttClient.loop();  // Procesar MQTT para asegurar envío inmediato
   } else {
     logError( "Error al serializar JSON de alerta: " + type);
@@ -329,7 +276,6 @@ void publishImmediateUpdate(const char* key, int value) {
     mqttClient.publish(MQTT_TOPIC_DATA, buffer, false);
   }
 }
-
 
 // Función común para publicar estado de actuadores (UART + MQTT)
 void publishState() {
@@ -452,10 +398,10 @@ void logError(const String& message) {
 }
 
 void logDebug(const String& message) {
-  // Throttling para logs DEBUG: máximo 1 por segundo para evitar spam
+  // Throttling DEBUG: max 1 por segundo
   static unsigned long lastDebugLog = 0;
   unsigned long now = millis();
-  if (now - lastDebugLog < 1000) return;  // Throttle: 1 segundo mínimo entre logs DEBUG
+  if (now - lastDebugLog < 1000) return;
   lastDebugLog = now;
   awgLog(LOG_DEBUG, message);
 }
@@ -464,9 +410,8 @@ void logDebug(const String& message) {
 void logWiFiConnected() {
   logInfo("✅ WiFi CONECTADO! IP: " + WiFi.localIP().toString());
 }
-// ========================================================================================
+
 // 6. GESTIÓN DE SENSORES - CLASE AWGSensorManager
-// ========================================================================================
 class AWGSensorManager {
 private:
   // SENSORES
@@ -498,7 +443,7 @@ private:
   bool bmeOnline = false;
   bool sht1Online = false;
   bool pzemOnline = false;
-  bool pzemJustOnline = false;  // Flag para evitar alerta falsa en primera lectura después de marcar online
+  bool pzemJustOnline = false;          // Flag para evitar alerta falsa en primera lectura después de marcar online
   unsigned long lastPZEMDetection = 0;  // Para reintentar detección periódicamente
   bool rtcOnline = false;
 
@@ -536,8 +481,7 @@ private:
     }
   }
 
-  /* Calcula el volumen de agua usando interpolación lineal simple basada en la tabla de calibración.
-   * Optimizada para velocidad y simplicidad.*/
+  // Calcula volumen usando interpolación lineal basada en tabla de calibración
   float interpolateVolume(float distance) {
     if (numCalibrationPoints < 2) return 0.0;
 
@@ -568,8 +512,8 @@ private:
     preferences.begin("awg-config", true);
     sensorOffset = preferences.getFloat("offset", 0.0);
     isCalibrated = preferences.getBool("calibrated", false);
-    emptyTankDistance = preferences.getFloat("emptyDist", 0.0);
-    tankHeight = preferences.getFloat("tankHeight", 0.0);
+    emptyTankDistance = preferences.getFloat("emptyDist", 150.0); // Valor por defecto 150 cm para vacío
+    tankHeight = preferences.getFloat("tankHeight", 100.0); // Valor por defecto 100 cm de altura
     tankCapacityLiters = preferences.getFloat("tankCapacity", 1000.0);
     logLevel = preferences.getInt("logLevel", LOG_INFO);
     // Cargar timeout de pantalla (segundos)
@@ -617,9 +561,7 @@ private:
     preferences.begin("awg-max-temp", true);
     maxCompressorTemp = preferences.getFloat("value", MAX_COMPRESSOR_TEMP);
     preferences.end();
-
-    // Actualizar umbral de alerta con la temperatura máxima cargada
-    alertCompressorTemp.threshold = maxCompressorTemp;
+    alertCompressorTemp.threshold = maxCompressorTemp;  // Actualizar umbral de alerta con la temperatura máxima cargada
 
     // Cargar tabla de calibración (sesión separada necesaria)
     preferences.begin("awg-calib", true);
@@ -821,7 +763,6 @@ public:
     sensorFailure = !bmeOnline || !sht1Online || !pzemOnline || !rtcOnline; // Actualizar flag de falla de sensores
   }
 
-
   AWGSensorManager()
     : sht31_1(&Wire),
       pzem(Serial2, RX2_PIN, TX2_PIN) {
@@ -831,13 +772,13 @@ public:
   bool begin() {
     loadCalibration();
     Wire.begin(SDA_PIN, SCL_PIN);
-    Wire.setTimeout(50);  // 50ms timeout para evitar bloqueos I2C
+    Wire.setTimeout(50);            // 50ms timeout para evitar bloqueos I2C
     Serial1.begin(115200, SERIAL_8N1, RX1_PIN, TX1_PIN);
     Serial2.begin(9600, SERIAL_8N1, RX2_PIN, TX2_PIN);
-    analogReadResolution(12);  // Configurar ADC a 12 bits para el termistor
-    initRelays();  // Inicializar pines de relés
+    analogReadResolution(12);       // Configurar ADC a 12 bits para el termistor
+    initRelays();                   // Inicializar pines de relés
     pinMode(CONFIG_BUTTON_PIN, INPUT_PULLUP);
-    buttonPressedLast = HIGH;  // Asumir no presionado al inicio
+    buttonPressedLast = HIGH;       // Asumir no presionado al inicio
     pinMode(TRIG_PIN, OUTPUT);
     pinMode(ECHO_PIN, INPUT);
     digitalWrite(TRIG_PIN, LOW);
@@ -999,7 +940,7 @@ public:
       // Si no está online, mostrar NAN para indicar no disponible
       data.voltage = NAN;
       data.current = NAN;
-      data.power = NAN;  // Energía se mantiene (no resetear a 0)
+      data.power = NAN;
     }
 
     // Leer temperatura del compresor (termistor NTC)
@@ -1015,8 +956,7 @@ public:
        float avgVoltage = sumVoltage / samples;
        // Calcular resistencia del termistor usando divisor de voltaje: R_term = R_fixed * (V_meas / (Vcc - V_meas))
        float resistance = NOMINAL_RESISTANCE * (avgVoltage / (VREF - avgVoltage));
-       // Calcular temperatura
-       data.compressorTemp = calculateTemperature(resistance);
+       data.compressorTemp = calculateTemperature(resistance); // Calcular temperatura
 
     // Estados de relés
     data.compressorState = digitalRead(COMPRESSOR_RELAY_PIN) == LOW ? 1 : 0;
@@ -1141,10 +1081,6 @@ public:
     doc["mqtt_port"] = mqttPort;
     doc["mqtt_topic"] = MQTT_TOPIC_DATA;
     doc["mqtt_connected"] = true;         // Si estamos transmitiendo, estamos conectados
-
-    // Calcular porcentaje de agua
-    float waterPercentMQTT = calculateWaterPercent(data.distance, safeWaterVolume);
-    doc["water_height"] = floatToString2Decimals(waterPercentMQTT);
     doc["tank_capacity"] = floatToString2Decimals(tankCapacityLiters);
 
     if (rtcOnline) {
@@ -1153,10 +1089,6 @@ public:
     } else {
       doc["ts"] = floatToString2Decimals(millis() / 1000.0);
     }
-
-    // Estado de calibración del tanque
-    doc["tank_calibrated"] = isCalibrated ? "true" : "false";
-
     size_t jsonSize = serializeJson(doc, mqttBuffer, sizeof(mqttBuffer));
 
     if (jsonSize > 0 && jsonSize < sizeof(mqttBuffer)) {
@@ -1260,35 +1192,32 @@ public:
     if (isCalibrated && numCalibrationPoints >= 2) {
       return interpolateVolume(distance);
     } else {
-      // Tanque no calibrado: no hacer aproximación, devolver NAN
-      return NAN;
+      // Tanque no calibrado: devolver 0.0 para evitar propagación de NAN
+      return 0.0;
     }
   }
 
   float calculateWaterPercent(float distance, float volume) {
-    if (isnan(volume)) {
-      // Si el volumen no está disponible (tanque no calibrado), devolver NAN
-      return NAN;
-    }
-    float waterPercent = 0.0;
-    if (tankCapacityLiters > 0 && volume >= 0) {
+    if (false && !isnan(volume) && tankCapacityLiters > 0 && volume >= 0) {
       // Método preferido: usar volumen calculado por calibración / capacidad total
-      waterPercent = (volume / tankCapacityLiters) * 100.0;
+      float waterPercent = (volume / tankCapacityLiters) * 100.0;
       // Limitar entre 0% y 100%
       if (waterPercent < WATER_PERCENT_MIN) waterPercent = WATER_PERCENT_MIN;
       if (waterPercent > WATER_PERCENT_MAX) waterPercent = WATER_PERCENT_MAX;
+      return waterPercent;
     } else if (tankHeight > 0) {
       // Fallback: cálculo basado en altura (para compatibilidad)
       float effectiveHeight = tankHeight - sensorOffset;
       if (effectiveHeight > 0) {
         float distanceToWater = distance - sensorOffset;
         if (distanceToWater < 0) distanceToWater = 0;
-        waterPercent = ((effectiveHeight - distanceToWater) / effectiveHeight) * 100.0;
+        float waterPercent = ((effectiveHeight - distanceToWater) / effectiveHeight) * 100.0;
         if (waterPercent < WATER_PERCENT_MIN) waterPercent = WATER_PERCENT_MIN;
         if (waterPercent > WATER_PERCENT_MAX) waterPercent = WATER_PERCENT_MAX;
+        return waterPercent;
       }
     }
-    return waterPercent;
+    return NAN;  // Si no hay datos válidos (tanque no calibrado), devolver NAN
   }
 
   bool isInCalibrationMode() {
@@ -1388,6 +1317,7 @@ public:
     // Lecturas principales
     status += "Distancia: " + String(data.distance, 2) + " cm\n";
     status += "Agua: " + String(data.waterVolume, 2) + " L\n";
+    status += "Nivel del Tanque: " + String(calculateWaterPercent(data.distance, data.waterVolume), 1) + " %\n";
     status += "Temp Ambiente: " + String(data.bmeTemp, 2) + " C\n";
     status += "Hum Ambiente: " + String(data.bmeHum, 2) + " %\n";
     status += "Temp Compresor: " + String(data.compressorTemp, 2) + " C\n";
@@ -1694,15 +1624,16 @@ public:
 
       // Timeout del display
       if (control.containsKey("dt")) {  // Clave abreviada
-        int newVal = control["dt"] | screenTimeoutSec;
-        if (newVal >= 0 && newVal <= 600) {  // 0-10 min en segundos
-          if (newVal != screenTimeoutSec) {
-            screenTimeoutSec = newVal;
+        int newVal = control["dt"] | (screenTimeoutSec / 60);  // Convertir segundos a minutos para comparación
+        if (newVal >= 0 && newVal <= 10) {  // 0-10 min
+          int newSec = newVal * 60;  // Convertir minutos a segundos
+          if (newSec != screenTimeoutSec) {
+            screenTimeoutSec = newSec;
             changeCount++;
             hasChanges = true;
           }
         } else {
-          logWarning( "Timeout display inválido: " + String(newVal) + "s (debe estar entre 0-600s)");
+          logWarning( "Timeout display inválido: " + String(newVal) + " min (debe estar entre 0-10 min)");
         }
       }
     }
@@ -1768,8 +1699,8 @@ public:
           } else {
             logWarning( "No se encontraron puntos de calibración válidos");
           }
-        } else {
-          logWarning( "Número de puntos de calibración inválido: " + String(points.size()));
+        } else if (points.size() > MAX_CALIBRATION_POINTS) {
+          logWarning( "Número de puntos de calibración inválido: " + String(points.size()) + " (máx: " + String(MAX_CALIBRATION_POINTS) + ")");
         }
       }
 
@@ -1808,8 +1739,7 @@ public:
       if (mqttClient.connected()) {
         logDebug( "✅ Reconexión MQTT exitosa - Broker actual: " + mqttBroker + ":" + String(mqttPort));
         mqttClient.publish(MQTT_TOPIC_SYSTEM, "ESP32_AWG_ONLINE", true);
-        // Re-suscribirse a los topics después de reconectar
-        mqttClient.subscribe(MQTT_TOPIC_CONTROL);
+        mqttClient.subscribe(MQTT_TOPIC_CONTROL); // Re-suscribirse a los topics después de reconectar
       } else {
         logError( "Reconexión MQTT fallida - Broker configurado: " + mqttBroker + ":" + String(mqttPort));
       }
@@ -1839,7 +1769,6 @@ public:
       Serial.printf("  Calibrado: %s\n", isCalibrated ? "SI" : "NO");
       Serial.printf("  Offset ultrasónico: %.1f cm\n", sensorOffset);
       Serial.printf("  Capacidad tanque: %.2f L\n", tankCapacityLiters);
-      Serial.printf("  Puntos calibración: %d\n", numCalibrationPoints);
       if (isCalibrated && numCalibrationPoints >= 2) {
         Serial.printf("  Altura tanque: %.1f cm\n", tankHeight);
       }
@@ -1857,7 +1786,6 @@ public:
       preferences.putInt("screenTimeout", screenTimeoutSec);
       preferences.end();
       logInfo( "💾 Configuración guardada en memoria");
-
       Serial1.println("UPDATE_CONFIG: OK");
       logDebug( "🎉 Actualización de configuración completada exitosamente");
     } else {
@@ -1865,7 +1793,6 @@ public:
       Serial1.println("UPDATE_CONFIG: OK");
     }
   }
-
 
   void processCommand(String& cmd) {
     // Validación básica del comando
@@ -1966,9 +1893,7 @@ public:
       // Ensamblar el JSON completo
       String fullJson = "\"mqtt\":" + configFragments[0] + ",\"alerts\":" + configFragments[1] + ",\"control\":" + configFragments[2] + ",\"tank\":" + configFragments[3];
       fullJson = "{" + fullJson + "}";
-
-      // Procesar como update_config normal
-      processUnifiedConfig(fullJson);
+      processUnifiedConfig(fullJson); // Procesar como update_config normal
 
       // Reset fragments
       for (int i = 0; i < 4; i++) {
@@ -2010,6 +1935,7 @@ public:
       }
       publishState();
     } else if (cmdToProcess == "off") {
+    compressorProtectionActive = false;  // Reset protección al apagar manualmente
       operationMode = MODE_MANUAL;
       digitalWrite(COMPRESSOR_RELAY_PIN, HIGH);
       logDebug( "Compresor OFF");
@@ -2065,6 +1991,47 @@ public:
         setVentiladorState(true);
         forceStartOnModeSwitch = true;  // Forzar una evaluación inmediata del controlador (one-shot)
       }
+
+      // Publicar estados actuales inmediatamente para sincronización
+      publishState();
+    } else if (cmdToProcess == "mode auto_pid" || cmdToProcess == "mode_auto_pid" || cmdToProcess == "mode:auto_pid") {
+      operationMode = MODE_AUTO_PID;
+      selectedAutoMode = AUTO_MODE_PID;
+      logDebug( "Modo cambiado a AUTO_PID");
+      preferences.begin("awg-config", false);
+      preferences.putInt("mode", (int)operationMode);
+      preferences.putInt("selectedAutoMode", (int)selectedAutoMode);
+      preferences.end();
+
+      if (mqttClient.connected()) mqttClient.publish(MQTT_TOPIC_STATUS, "MODE_AUTO_PID");
+
+      // ACTIVAR AUTOMÁTICAMENTE COMPRESOR Y VENTILADOR AL CAMBIAR A MODO PID
+      logDebug( "🔄 Activando automáticamente compresor y ventilador para control PID");
+      digitalWrite(COMPRESSOR_RELAY_PIN, LOW);
+      logDebug( "Compresor ON");
+      setVentiladorState(true);
+      forceStartOnModeSwitch = true;  // Forzar una evaluación inmediata del controlador (one-shot)
+
+      // Publicar estados actuales inmediatamente para sincronización
+      publishState();
+    } else if (cmdToProcess == "mode auto_time" || cmdToProcess == "mode_auto_time" || cmdToProcess == "mode:auto_time") {
+      operationMode = MODE_AUTO_TIME;
+      selectedAutoMode = AUTO_MODE_TIME;
+      logDebug( "Modo cambiado a AUTO_TIME");
+      preferences.begin("awg-config", false);
+      preferences.putInt("mode", (int)operationMode);
+      preferences.putInt("selectedAutoMode", (int)selectedAutoMode);
+      preferences.end();
+
+      if (mqttClient.connected()) mqttClient.publish(MQTT_TOPIC_STATUS, "MODE_AUTO_TIME");
+
+      // ACTIVAR AUTOMÁTICAMENTE COMPRESOR AL CAMBIAR A MODO TIEMPO (ventilador siempre encendido)
+      logDebug( "🔄 Activando automáticamente compresor para modo cíclico");
+      digitalWrite(COMPRESSOR_RELAY_PIN, LOW);
+      logDebug( "Compresor ON");
+      setVentiladorState(true);  // Ventilador siempre encendido en modo tiempo
+      timeModeCycleStart = millis();  // Reiniciar ciclo
+      timeModeCompressorState = true;  // Empezar encendido
 
       // Publicar estados actuales inmediatamente para sincronización
       publishState();
@@ -2172,11 +2139,16 @@ public:
       else if (cmd.startsWith("set_offset")) {
           String offsetStr = cmd.substring(10);
           offsetStr.trim();
-          sensorOffset = offsetStr.toFloat();
-          preferences.begin("awg-config", false);
-          preferences.putFloat("offset", sensorOffset);
-          preferences.end();
-          logInfo( "✅ Offset ajustado a: " + String(sensorOffset, 2) + " cm");
+          float newOffset = offsetStr.toFloat();
+          if (newOffset >= -50.0 && newOffset <= 50.0) {
+            sensorOffset = newOffset;
+            preferences.begin("awg-config", false);
+            preferences.putFloat("offset", sensorOffset);
+            preferences.end();
+            logInfo( "✅ Offset ajustado a: " + String(sensorOffset, 2) + " cm");
+          } else {
+            logWarning( "Offset del sensor fuera de rango: " + String(newOffset, 1) + " cm (debe estar entre -50.0 y 50.0 cm)");
+          }
     } else if (cmd.startsWith("set_log_level")) {
       String levelStr = cmd.substring(13);
       levelStr.trim();
@@ -2226,7 +2198,6 @@ public:
         logWarning( "Capacidad del tanque inválida. Use: 1-10000 L");
       }
     } else if (cmd.indexOf("set_screen_timeout") != -1) {
-      // SET_SCREEN_TIMEOUT: set or show screen idle timeout (seconds). Accepts separators ':' or '=' or space.
       int p = cmd.indexOf("set_screen_timeout");
       int valStart = p + 18; // length of 'set_screen_timeout'
       String valStr = "";
@@ -2236,7 +2207,7 @@ public:
         valStr = valStr.substring(1);
         valStr.trim();
       }
-      // If no value provided, print current timeout
+
       if (valStr.length() == 0) {
         logInfo( "SET_SCREEN_TIMEOUT: valor actual = " + String(screenTimeoutSec) + " segundos");
       } else {
@@ -2364,16 +2335,14 @@ public:
       mqttClient.disconnect();
       delay(1000);
       portalActive = true;
-      // Forzar LED blanco inmediatamente (portal bloqueante)
-      currentLedState = LED_WHITE;
+      currentLedState = LED_WHITE;    // Forzar LED blanco inmediatamente (portal bloqueante)
       setLedColor(COLOR_WHITE_R, COLOR_WHITE_G, COLOR_WHITE_B);
       logInfo( "Iniciando portal de configuración desde display...");
       startCustomConfigPortal();
       setupWiFi();
       setupMQTT();
       portalActive = false;
-      // Restaurar LED según estado actual
-      updateLedState();
+      updateLedState();       // Restaurar LED según estado actual
     }
     else if (cmd == "reconnect") {
       logInfo( "Comando RECONNECT recibido del display");
@@ -2405,13 +2374,18 @@ public:
       float v = 0.0f;
       int parsed = sscanf(buf, "%d,%f,%f", &idx, &d, &v);
       if (parsed == 3 && idx >= 0 && idx < MAX_CALIBRATION_POINTS) {
-        calibrationPoints[idx].distance = d;
-        calibrationPoints[idx].volume = v;
-        if (idx >= numCalibrationPoints) numCalibrationPoints = idx + 1;
-        sortCalibrationPoints();
-        calculateTankHeight();
-        saveCalibration();
-        logInfo( "CALIB_SET: punto " + String(idx) + " = " + String(d, 2) + " cm -> " + String(v, 2) + " L");
+        // Validar rangos razonables
+        if (d >= 0 && d <= 400 && v >= 0 && v <= 10000) {
+          calibrationPoints[idx].distance = d;
+          calibrationPoints[idx].volume = v;
+          if (idx >= numCalibrationPoints) numCalibrationPoints = idx + 1;
+          sortCalibrationPoints();
+          calculateTankHeight();
+          saveCalibration();
+          logInfo( "CALIB_SET: punto " + String(idx) + " = " + String(d, 2) + " cm -> " + String(v, 2) + " L");
+        } else {
+          logWarning( "CALIB_SET: valores fuera de rango - distancia: " + String(d, 1) + " cm (0-400), volumen: " + String(v, 1) + " L (0-10000)");
+        }
       } else {
         logWarning( "Uso: CALIB_SET idx,distance_cm,volume_L");
       }
@@ -2514,14 +2488,15 @@ public:
       // SENSORES Y ACTUADORES
       Serial.println("║ 🔧 SENSORES Y ACTUADORES:");
       Serial.printf("║   • Compresor: %s\n", digitalRead(COMPRESSOR_RELAY_PIN) == LOW ? "ON" : "OFF");
-      Serial.printf("║   • Ventilador: %s\n", digitalRead(VENTILADOR_RELAY_PIN) == LOW ? "ON" : "OFF");
-      Serial.printf("║   • Ventilador compresor: %s\n", digitalRead(COMPRESSOR_FAN_RELAY_PIN) == LOW ? "ON" : "OFF");
-      Serial.printf("║   • Bomba: %s\n", digitalRead(PUMP_RELAY_PIN) == LOW ? "ON" : "OFF");
+      Serial.printf("║   • Ventilador Evaporador: %s\n", digitalRead(VENTILADOR_RELAY_PIN) == LOW ? "ON" : "OFF");
+      Serial.printf("║   • Ventilador Compresor: %s\n", digitalRead(COMPRESSOR_FAN_RELAY_PIN) == LOW ? "ON" : "OFF");
+      Serial.printf("║   • Bomba de agua: %s\n", digitalRead(PUMP_RELAY_PIN) == LOW ? "ON" : "OFF");
       Serial.printf("║   • Temp ambiente: %.1f°C\n", this->getSensorData().bmeTemp);
       Serial.printf("║   • Temp compresor: %.1f°C\n", this->getSensorData().compressorTemp);
-      Serial.printf("║   • Humedad: %.1f%%\n", this->getSensorData().bmeHum);
-      Serial.printf("║   • Nivel agua: %.2f L\n", this->getSensorData().waterVolume);
+      Serial.printf("║   • Humedad ambiente: %.1f%%\n", this->getSensorData().bmeHum);
       Serial.printf("║   • Offset sensor ultrasónico: %.1f cm\n", sensorOffset);
+      Serial.printf("║   • Agua almacenada: %.2f L\n", this->getSensorData().waterVolume);
+      Serial.printf("║   • Nivel del Tanque: %.1f %%\n", calculateWaterPercent(this->getSensorData().distance, this->getSensorData().waterVolume));
       Serial.printf("║   • Capacidad del tanque: %.2f L\n", tankCapacityLiters);
       Serial.println("║");
 
@@ -2687,7 +2662,14 @@ public:
          Serial1.println("SET_TIME_OFF: ERR");
        }
      } else if (cmd.startsWith("set_auto_mode")) {
-       String modeStr = cmd.substring(13);
+       // Parsing más robusto: encontrar el espacio después de "set_auto_mode"
+       int spaceIndex = cmd.indexOf(' ', 13); // Buscar espacio después de "set_auto_mode" (13 chars)
+       String modeStr;
+       if (spaceIndex != -1) {
+         modeStr = cmd.substring(spaceIndex + 1);
+       } else {
+         modeStr = cmd.substring(13);
+       }
        modeStr.trim();
        modeStr.toUpperCase();
        if (modeStr == "PID") {
@@ -2705,7 +2687,7 @@ public:
          logInfo( "✅ Modo automático seleccionado: TIME (control por tiempo cíclico)");
          Serial1.println("SET_AUTO_MODE: TIME");
        } else {
-         logWarning( "Modo automático inválido. Use: SET_AUTO_MODE PID o SET_AUTO_MODE TIME");
+         logWarning( "Modo automático inválido: '" + modeStr + "'. Use: SET_AUTO_MODE PID o SET_AUTO_MODE TIME");
          Serial1.println("SET_AUTO_MODE: ERR");
        }
      }
@@ -2837,7 +2819,6 @@ public:
     logDebug( "=== PRUEBA FINALIZADA ===");
   }
 
-
   // Función para calcular temperatura del termistor NTC
   float calculateTemperature(float resistance) {
     if (resistance <= 0) return ABSOLUTE_ZERO;  // Valor inválido
@@ -2910,9 +2891,7 @@ void updateLedState() {
   unsigned long now = millis();
   if (now - lastLedUpdate < LED_UPDATE_INTERVAL) return;
   lastLedUpdate = now;
-
-  // Determinar estado deseado según prioridad (mayor prioridad primero)
-  RGBLedState desired = LED_OFF;
+  RGBLedState desired = LED_OFF; // Determinar estado deseado según prioridad (mayor prioridad primero)
 
   // Prioridad máxima: Sobrecalentamiento compresor -> rojo sólido
   if (alertCompressorTempActive) {
@@ -2987,7 +2966,7 @@ void updateLedState() {
   }
 }
 
-/* Algoritmo de control automático de temperatura del sistema Dropster AWG. Mantiene la temperatura del evaporador cerca del punto de rocío usando control PID-like o modo cíclico por tiempo.*/
+/* Control automático: mantiene temp evaporador cerca del punto de rocío (PID o cíclico) */
 void AWGSensorManager::processControl() {
   if (operationMode != MODE_AUTO_PID && operationMode != MODE_AUTO_TIME) return;  // Solo ejecutar en modos automáticos
   unsigned long now = millis();
@@ -3053,6 +3032,7 @@ void AWGSensorManager::processControl() {
           compressorProtectionStart = now;
           compressorMaxCurrent = 0.0f;
         } else {
+          compressorProtectionActive = false;  // Reset protección al apagar en modo tiempo
           // Apagar compresor
           digitalWrite(COMPRESSOR_RELAY_PIN, HIGH);
           logDebug( "Modo tiempo: Compresor OFF - Ciclo: " + String(timeModeCompressorOffTime) + "s OFF");
@@ -3074,12 +3054,11 @@ void AWGSensorManager::processControl() {
       // Compresor apagado: encender ventilador del compresor
       setCompressorFanState(true);
     }
-
     return;  // Salir después de procesar modo tiempo
   }
 
-  // Modo automático PID (código original)
-  if (!sht1Online) return;                 // Verificar que el sensor de temperatura del evaporador (SHT31) este disponible
+  // Modo automático PID
+  if (!sht1Online) return;     // Verificar que el sensor de temperatura del evaporador (SHT31) este disponible
   if (now - lastControlSample < (unsigned long)control_sampling * 1000UL) return;
   lastControlSample = now;
 
@@ -3110,11 +3089,13 @@ void AWGSensorManager::processControl() {
   if (compressorOn) {
     if (compressorOnStart == 0) compressorOnStart = nowMs;
     // Apagar si excede tiempo máximo continuo
+      compressorProtectionActive = false;  // Reset protección al apagar por tiempo máximo
     if (nowMs - compressorOnStart >= (unsigned long)control_max_on * 1000UL) {
       digitalWrite(COMPRESSOR_RELAY_PIN, HIGH);
       publishState();
       compressorOffStart = nowMs;
       compressorOnStart = 0;
+      compressorProtectionActive = false;  // Reset protección al apagar por histeresis
     } else if (evapSmoothed <= offThreshold) {
       // Apagar por histeresis cuando temperatura cae suficientemente debajo del punto de rocío
       digitalWrite(COMPRESSOR_RELAY_PIN, HIGH);
@@ -3150,10 +3131,10 @@ void AWGSensorManager::processControl() {
       }
     }
   }
-  // Control inteligente del ventilador del evaporador (recircula aire caliente para introducir calor)
+  // Control ventilador evaporador (recircula aire caliente)
   bool evapFanOn = (digitalRead(VENTILADOR_RELAY_PIN) == LOW);
 
-  // Control por histeresis de temperatura: enciende cuando frío (para calentar), apaga cuando caliente
+  // Histeresis temperatura: enciende frío, apaga caliente
   if (evapFanOn) {
     if (evapSmoothed >= (dew + evapFanTempOffOffset)) {
       // Apagar cuando temperatura sube suficientemente por encima del punto de rocío
@@ -3325,27 +3306,22 @@ if (alertTankFull.enabled && data.waterVolume >= 0) {
 void awgLog(int level, const String& message) {
   if (level <= logLevel) {
     const char* levelStr = "LOG";
-    const char* emoji = "";
     switch (level) {
       case LOG_ERROR:
         levelStr = "ERROR";
-        emoji = "❌";
         break;
       case LOG_WARNING:
         levelStr = "WARNING";
-        emoji = "⚠️";
         break;
       case LOG_INFO:
         levelStr = "INFO";
-        emoji = "ℹ️";
         break;
       case LOG_DEBUG:
         levelStr = "DEBUG";
-        emoji = "🔍";
         break;
     }
     char msgBuf[LOG_MSG_LEN];
-    snprintf(msgBuf, sizeof(msgBuf), "%s %s", emoji, message.c_str());
+    snprintf(msgBuf, sizeof(msgBuf), "%s", message.c_str());
     Serial.println(msgBuf);  // Imprimir por Serial
 
     // Guardar en buffer circular (char arrays) - siempre con timestamp completo para logs MQTT
@@ -3410,39 +3386,13 @@ void setPumpState(bool newState) {
     // Verificar nivel de agua mínimo para bombear
     AWGSensorManager::SensorData_t sensorData = sensorManager.getSensorData();
     if (sensorData.waterVolume < alertPumpLow.threshold) {
-      logError( "🚫 SEGURIDAD: Bomba NO encendida - Nivel de agua insuficiente: " + String(sensorData.waterVolume, 1) + "L (mín: " + String(alertPumpLow.threshold, 1) + "L)");
-
-      // ACTUALIZAR ESTADO INMEDIATO EN LA APP - BOMBA PERMANECE OFF
-      publishImmediateUpdate("ps", 0);
-      return;
-    }
-    // Verificar voltaje mínimo
-    if (sensorManager.getPzemOnline() && sensorData.voltage > 0.1 && sensorData.voltage < 100.0) {
-      logError( "🚫 SEGURIDAD: Bomba NO encendida - Voltaje bajo: " + String(sensorData.voltage, 1) + "V (mín: 100.0V)");
-
-      // Mensaje de error de bomba - ahora se envía para que la app valide
-      if (mqttClient.connected()) {
-        StaticJsonDocument<150> errorDoc;
-        errorDoc["type"] = "pump_error";
-        errorDoc["reason"] = "low_voltage";
-        errorDoc["message"] = "Voltaje insuficiente para activar la bomba";
-        errorDoc["current_voltage"] = sensorData.voltage;
-        errorDoc["min_voltage"] = 100.0;
-        char errorBuffer[150];
-        size_t errorLen = serializeJson(errorDoc, errorBuffer, sizeof(errorBuffer));
-        if (errorLen > 0 && errorLen < sizeof(errorBuffer)) {
-          mqttClient.publish(MQTT_TOPIC_ERRORS, errorBuffer, false);
-          logDebug( "📤 Mensaje de error de bomba enviado por MQTT: voltaje insuficiente");
-        }
-      }
-
-      // ACTUALIZAR ESTADO INMEDIATO EN LA APP - BOMBA PERMANECE OFF
+      logError("SEGURIDAD: Bomba NO encendida - Nivel de agua insuficiente: " + String(sensorData.waterVolume, 1) + "L (min: " + String(alertPumpLow.threshold, 1) + "L)");
       publishImmediateUpdate("ps", 0);
       return;
     }
   }
   digitalWrite(PUMP_RELAY_PIN, newState ? LOW : HIGH);
-  logDebug( "Bomba " + String(newState ? "ON" : "OFF"));
+  logDebug("Bomba " + String(newState ? "ON" : "OFF"));
   publishState();
 }
 
@@ -3555,7 +3505,6 @@ void setupMQTT() {
 }
 
 void connectMQTT() {
-  // Ensure WiFi is connected before attempting MQTT
   if (WiFi.status() != WL_CONNECTED) {
     logWarning( "🔌 Cancelando conexión MQTT: WiFi no conectado");
     return;
@@ -3565,7 +3514,7 @@ void connectMQTT() {
   logInfo( "📝 TOPIC MQTT OBJETIVO: " + String(MQTT_TOPIC_DATA));
   String clientId = String(MQTT_CLIENT_ID) + "_" + String(random(1000, 9999));  // Client ID único para evitar conflictos
 
-  // Last Will (mensaje que el broker publicará si el cliente se desconecta inesperadamente)
+  // Mensaje que el broker publicará si el cliente se desconecta inesperadamente
   const char* willTopic = MQTT_TOPIC_SYSTEM;
   const char* willMessage = "ESP32_AWG_OFFLINE";
   const uint8_t willQos = 1;
@@ -3582,14 +3531,12 @@ void connectMQTT() {
   } else {
     connected = mqttClient.connect(clientId.c_str(), willTopic, willQos, willRetain, willMessage);
   }
-
   unsigned long connectTime = millis() - connectStart;
 
   if (connected) {
     logInfo( "✅ CONEXIÓN MQTT EXITOSA!");
     // Suscribirse a todos los topics necesarios
     mqttClient.subscribe(MQTT_TOPIC_CONTROL);
-
     mqttClient.publish(MQTT_TOPIC_SYSTEM, "ESP32_AWG_ONLINE", true);  // Publicar estado online (retained)
     logInfo( "📤 Estado online publicado");
     logInfo( "✅ Dispositivo Dropster AWG listo para operar!");
@@ -3611,7 +3558,6 @@ void connectMQTT() {
     } else if (errorCode == MQTT_CONNECT_BAD_CREDENTIALS) {
       logError( "   🔍 Diagnóstico: Credenciales inválidas - verificar usuario/contraseña");
     }
-
     logWarning( "🔄 Intentando reconexión en " + String(mqttReconnectBackoff/1000) + " segundos...");
   }
 }
@@ -3663,9 +3609,7 @@ void startCustomConfigPortal() {
   // Agregar parámetros personalizados al WiFiManager
   wifiManager.addParameter(&custom_mqtt_broker);
   wifiManager.addParameter(&custom_mqtt_port);
-
-  // Configurar timeout del portal
-  wifiManager.setConfigPortalTimeout(WIFI_CONFIG_PORTAL_TIMEOUT);
+  wifiManager.setConfigPortalTimeout(WIFI_CONFIG_PORTAL_TIMEOUT);  // Configurar timeout del portal
 
   // Iniciar portal de configuración personalizado
   bool success = false;
@@ -3675,9 +3619,7 @@ void startCustomConfigPortal() {
   // Bucle para mantener el portal activo hasta guardar o timeout
   while (configPortalForceActive && (millis() - portalStartTime < CONFIG_PORTAL_MAX_TIMEOUT)) {
     logInfo( "Iniciando portal de configuración...");
-
-    // Iniciar portal de configuración
-    success = wifiManager.startConfigPortal("DropsterAWG_WiFiConfig");
+    success = wifiManager.startConfigPortal("DropsterAWG_WiFiConfig");    // Iniciar portal de configuración
 
     if (success) {
       logInfo( "Portal cerrado exitosamente");
@@ -3700,7 +3642,6 @@ void startCustomConfigPortal() {
           preferences.putString("broker", newBroker);
           preferences.putInt("port", newPort);
           preferences.end();
-
           mqttBroker = newBroker;
           mqttPort = newPort;
           logInfo( "✅ Configuración MQTT guardada desde portal:");
@@ -3724,12 +3665,9 @@ void startCustomConfigPortal() {
         configPortalForceActive = false;
         break;
       }
-
-      // Pequeño delay antes de reintentar
       delay(1000);
     }
   }
-
   configPortalForceActive = false;  // Asegurar que el flag se resetee
 }
 
@@ -3795,7 +3733,6 @@ bool loadWiFiCredentials(String& ssid, String& password) {
   ssid = preferences.getString("ssid", "");
   password = preferences.getString("password", "");
   preferences.end();
-
   bool hasCredentials = (ssid.length() > 0 && password.length() > 0);
   if (hasCredentials) {
     logDebug( "📡 Credenciales WiFi cargadas: " + ssid);
@@ -3809,37 +3746,38 @@ bool loadWiFiCredentials(String& ssid, String& password) {
 void setup() {
    // Inicializar NVS para evitar errores de calibración RF (store_cal_data_to_nvs_handle failed)
    esp_err_t ret = nvs_flash_init();
-   if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+   if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND || ret == ESP_ERR_NVS_INVALID_HANDLE) {
+     logWarning("NVS corrupted or invalid (0x" + String(ret, HEX) + "), erasing and retrying...");
      ESP_ERROR_CHECK(nvs_flash_erase());
      ret = nvs_flash_init();
+     ESP_ERROR_CHECK(ret);
+     logInfo("NVS reinicializado exitosamente");
+   } else if (ret != ESP_OK) {
+     logWarning("NVS init failed (0x" + String(ret, HEX) + "), but not erasing to preserve config");
    }
-   ESP_ERROR_CHECK(ret);
-
    Serial.begin(115200);
    Serial1.begin(115200, SERIAL_8N1, RX1_PIN, TX1_PIN);
    delay(500);
    logInfo("🚀 Iniciando sistema AWG...");
    logInfo("📋 Versión del firmware: v1.0");
    pinMode(CONFIG_BUTTON_PIN, INPUT_PULLUP);
-   // Configurar pin de backlight (GPIO5) y encender por defecto
+
+   // Configurar pin de backlight y encender por defecto
    pinMode(BACKLIGHT_PIN, OUTPUT);
    digitalWrite(BACKLIGHT_PIN, HIGH);
    backlightOn = true;
    lastScreenActivity = millis();
-   loadSystemStats();  // Cargar estadísticas del sistema
+   loadSystemStats();              // Cargar estadísticas del sistema
    Serial1.println("AWG_INIT:OK"); // Test UART communication
 
   // Cargar configuración MQTT antes de inicializar sensores
   loadMqttConfig();
   loadAlertConfig();
   logInfo( "🔧 Inicializando componentes del sistema...");
-  // Inicializar LED RGB y demás componentes
-  ledInit();
+  ledInit(); // Inicializar LED RGB
   sensorManager.begin();
-  // Conectar WiFi y MQTT de forma eficiente (igual que el comando RECONNECT)
-  reconnectSystem();
-  // Enviar estados iniciales al display
-  publishState();
+  reconnectSystem(); // Conectar WiFi y MQTT de forma eficiente (igual que el comando RECONNECT)
+  publishState();   // Enviar estados iniciales al display
   // Registrar inicio del sistema
   systemStartTime = millis();
   rebootCount++;

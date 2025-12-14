@@ -24,7 +24,7 @@ class InfoScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  "Dropster es una aplicación móvil que permite el control y monitoreo en tiempo real del dispositivo Dropster AWG (Atmospheric Water Generator). Esta tecnología genera agua para sistemas de riego en ambientes controlados a partir de la humedad del aire utilizando refrigeración y condensación.\n",
+                  "Dropster app es una aplicación que permite el control y monitoreo en tiempo real del dispositivo Dropster AWG (Atmospheric Water Generator). Esta tecnología genera agua para sistemas de riego en ambientes controlados a partir de la humedad del aire utilizando refrigeración y condensación.\n",
                   style: TextStyle(fontSize: 14),
                 ),
                 const SizedBox(height: 16),
@@ -39,7 +39,7 @@ class InfoScreen extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text(
                   "🏠 Inicio: pantalla principal donde se encuantra el nivel de agua del tanque, modo de operacion y control de actuadores del dispositivo\n"
-                  "📊 Monitoreo: Datos detallados del sistema en tiempo real\n"
+                  "📊 Monitoreo: Datos detallados del dispositivo Dropster AWG en tiempo real\n"
                   "🔗 Conectividad: Gestión de conexiones MQTT\n"
                   "📈 Gráficas: Visualización histórica y en tiempo real de variables de interés\n"
                   "⚙️ Configuración: Configuración de datos, conectividad, notificaciones, tanque, alertas y parametros de control\n"

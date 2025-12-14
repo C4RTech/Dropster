@@ -20,8 +20,10 @@ class SingletonMqttService {
 
   // Notificador global con los datos actuales (para usar en toda la UI)
   final ValueNotifier<Map<String, dynamic>> notifier = ValueNotifier({});
-  // Notificador para el estado de conexión MQTT
+  // Notificador para el estado de conexión MQTT de la app
   final ValueNotifier<bool> connectionNotifier = ValueNotifier(false);
+  // Notificador para el estado de conexión del ESP32
+  final ValueNotifier<bool> esp32ConnectionNotifier = ValueNotifier(false);
   StreamSubscription<Map<String, dynamic>>? _dataSubscription;
   Timer? _connectionStatusTimer;
 

@@ -82,8 +82,11 @@ class MqttHiveService {
         'presionAtmosferica': jsonData['p'] ?? 0.0, // p = presión atmosférica
         'humedadRelativa':
             jsonData['h'] ?? 0.0, // h = humedad relativa ambiente
-        'aguaAlmacenada': jsonData['w'] ?? 0.0, // w = agua almacenada
-        'water_height': jsonData['water_height'] ?? 0.0, // porcentaje de agua
+        'aguaAlmacenada': double.tryParse(jsonData['w']?.toString() ?? '0.0') ??
+            0.0, // w = agua almacenada
+        'tank_capacity':
+            double.tryParse(jsonData['tank_capacity']?.toString() ?? '0.0') ??
+                0.0, // capacidad del tanque
 
         // === SENSORES ADICIONALES ===
         'sht1Temp': jsonData['te'] ?? 0.0, // te = temperatura evaporador
@@ -107,8 +110,6 @@ class MqttHiveService {
         // === ESTADO DE CALIBRACIÓN ===
         'calibrated': jsonData['calibrated'] ??
             false, // calibrated = estado de calibración
-        'tankCalibrated': jsonData['tank_calibrated'] ==
-            'true', // tank_calibrated = estado de calibración del tanque
 
         // === TIMESTAMP ===
         'datetime': jsonData['ts']?.toString() ?? '', // ts = timestamp unix
@@ -120,11 +121,6 @@ class MqttHiveService {
       final energiaValue = parsedData['energia'];
       debugPrint(
           '[ENERGIA DEBUG] Valor mapeado para "energia": $energiaValue (tipo: ${energiaValue.runtimeType})');
-
-      // Verificar estado de calibración del tanque
-      final tankCalibrated = parsedData['tankCalibrated'];
-      debugPrint(
-          '[CALIBRATION DEBUG] Estado de calibración del tanque: $tankCalibrated (raw: ${jsonData['tank_calibrated']})');
 
       // Debug exhaustivo de valores eléctricos
       debugPrint('[ESP32 RAW DEBUG] === VALORES CRUDOS DEL ESP32 ===');
@@ -255,6 +251,10 @@ class MqttHiveService {
     }
     if (data.containsKey('aguaAlmacenada')) {
       debugPrint('[MQTT DEBUG] - Agua almacenada: ${data['aguaAlmacenada']}L');
+    }
+    if (data.containsKey('water_height')) {
+      debugPrint(
+          '[MQTT DEBUG] - Water height: ${data['water_height']} (tipo: ${data['water_height'].runtimeType})');
     }
     if (data.containsKey('energia')) {
       final energiaValue = data['energia'];

@@ -43,3 +43,11 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Generated build directories
+android/.gradle/
+android/.kotlin/
+android/app/.cxx/
+linux/flutter/generated_*
+windows/flutter/generated_*
+macos/Flutter/GeneratedPluginRegistrant.swift

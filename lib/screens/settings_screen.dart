@@ -3,8 +3,10 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
 import '../services/mqtt_hive.dart';
-import '../services/enhanced_daily_report_service.dart';
+import '../services/enhanced_daily_report_service_refactored.dart';
 import '../services/singleton_mqtt_service.dart';
+import 'graph_screen.dart';
+import 'info_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -299,7 +301,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // Programar o cancelar reporte diario mejorado
       try {
         debugPrint('[SETTINGS] 📅 Programando reporte diario...');
-        await EnhancedDailyReportService()
+        await EnhancedDailyReportServiceRefactored()
             .scheduleDailyReport(dailyReportTime, dailyReportEnabled);
         debugPrint('[SETTINGS] ✅ Reporte diario programado correctamente');
       } catch (e) {
@@ -427,7 +429,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               humidityLowEnabled: humidityLowEnabled,
               tankCapacity: tankCapacity,
               isCalibrated: isCalibrated,
-              calibrationPoints: calibrationPoints,
               ultrasonicOffset: ultrasonicOffset,
               controlDeadband: controlDeadband,
               controlMinOff: controlMinOff,
@@ -435,7 +436,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               controlSampling: controlSampling,
               controlAlpha: controlAlpha,
               maxCompressorTemp: maxCompressorTemp,
-              displayTimeoutMinutes: displayTimeoutMinutes * 60,
+              displayTimeoutMinutes: displayTimeoutMinutes,
               showNotifications: showNotifications,
               dailyReportEnabled: dailyReportEnabled,
               dailyReportTime: dailyReportTime,
@@ -667,6 +668,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 'Parámetros de Control', Icons.tune, labelColor),
             const SizedBox(height: 16),
             _buildControlParametersCard(colorPrimary, colorAccent, colorText),
+            const SizedBox(height: 24),
+            // Sección de información
+            _buildSectionHeader('Información', Icons.info, labelColor),
+            const SizedBox(height: 16),
+            _buildInfoCard(colorPrimary, colorAccent, colorText),
             const SizedBox(height: 32),
             // Botón de guardar
             SizedBox(
@@ -1131,7 +1137,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       value: displayTimeoutMinutes.toDouble(),
                       min: 0,
                       max: 10,
-                      divisions: 10,
                       label: displayTimeoutMinutes == 0
                           ? "Desactivado"
                           : "$displayTimeoutMinutes min",
@@ -1406,6 +1411,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildInfoCard(
+      Color colorPrimary, Color colorAccent, Color colorText) {
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            ListTile(
+              leading: Icon(Icons.info, color: colorAccent),
+              title: const Text('Acerca de Dropster'),
+              subtitle: const Text('Información sobre la aplicación'),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const InfoScreen()),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showClearDataDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -1570,7 +1602,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showReportHistoryDialog() async {
     final currentContext = context;
-    final reports = await EnhancedDailyReportService().getReportHistory();
+    final reports =
+        await EnhancedDailyReportServiceRefactored().getReportHistory();
 
     if (!mounted) return;
     showDialog(
@@ -1596,18 +1629,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                     return Card(
                       margin: const EdgeInsets.symmetric(vertical: 4),
+                      color: const Color(0xFF206877),
                       child: ListTile(
                         title: Text(
                           '${DateFormat('dd/MM/yyyy').format(date)}',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold, color: Colors.white),
                         ),
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('⚡ Energía: ${energy.toStringAsFixed(2)} Wh'),
-                            Text('💧 Agua: ${water.toStringAsFixed(2)} L'),
+                            Text('⚡ Energía: ${energy.toStringAsFixed(2)} Wh',
+                                style: const TextStyle(color: Colors.white)),
+                            Text('💧 Agua: ${water.toStringAsFixed(2)} L',
+                                style: const TextStyle(color: Colors.white)),
                             Text(
-                                '⚡ Eficiencia: ${efficiency.toStringAsFixed(3)} Wh/L'),
+                                '⚡ Eficiencia: ${efficiency.toStringAsFixed(3)} Wh/L',
+                                style: const TextStyle(color: Colors.white)),
                           ],
                         ),
                         trailing: Icon(
@@ -1623,9 +1661,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
           TextButton(
             onPressed: () => Navigator.pop(currentContext),
             style: TextButton.styleFrom(
+              backgroundColor: const Color(0xFF206877),
               foregroundColor: Colors.white,
+              textStyle: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(30),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             ),
-            child: const Text('Cerrar', style: TextStyle(color: Colors.white)),
+            child: const Text('Cerrar'),
           ),
           if (reports.isNotEmpty)
             TextButton(
@@ -1633,8 +1680,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Navigator.pop(currentContext);
                 _clearReportHistoryAndNotify();
               },
+              style: TextButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
               child: const Text('Borrar Historial',
-                  style: TextStyle(color: Colors.red)),
+                  style: TextStyle(color: Colors.white)),
             ),
         ],
       ),
@@ -1644,7 +1695,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _generateCurrentDayReport(BuildContext context) async {
     try {
       debugPrint('📊 Generando reporte del día actual...');
-      await EnhancedDailyReportService().generateCurrentDayReport();
+      await EnhancedDailyReportServiceRefactored().generateCurrentDayReport();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Reporte del día actual enviado',
@@ -1877,12 +1928,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _clearReportHistoryAndNotify() async {
     try {
-      await EnhancedDailyReportService().clearReportHistory();
+      await EnhancedDailyReportServiceRefactored().clearReportHistory();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Historial de reportes borrado'),
-          backgroundColor: Colors.red,
+          content: Text('Historial de reportes borrado',
+              style: TextStyle(color: Color(0xFF155263))),
+          backgroundColor: Colors.white,
         ),
       );
     } catch (e) {

@@ -67,7 +67,7 @@
 #define LED_R_PIN 2
 #define LED_G_PIN 23
 #define LED_B_PIN 32
-#define BACKLIGHT_PIN 5  // GPIO del ESP32 conectado al pin BL del display (GPIO21 del display)
+#define BACKLIGHT_PIN 5
 #define LEDC_CHANNEL_R 0
 #define LEDC_CHANNEL_G 1
 #define LEDC_CHANNEL_B 2
@@ -137,9 +137,15 @@
 // Configuración del tanque
 #define TANK_CAPACITY_DEFAULT 20.0f      // Capacidad por defecto (L)
 
-// Configuración de protección de bomba
-#define PUMP_MIN_LEVEL_DEFAULT 2.0f       // Nivel mínimo para bomba (L)
+// Configuración del modo automático por tiempo
+#define TIME_MODE_COMPRESSOR_ON_TIME_DEFAULT 900   // Tiempo encendido del compresor (s, 15 min)
+#define TIME_MODE_COMPRESSOR_OFF_TIME_DEFAULT 450  // Tiempo apagado del compresor (s, 7.5 min)
 
+// Configuración del display
+#define SCREEN_TIMEOUT_DEFAULT 0         // Timeout de pantalla por defecto (segundos, 0 = deshabilitado)
+
+// Configuración de protección de bomba
+#define PUMP_MIN_LEVEL_DEFAULT 2.0f        // Nivel mínimo para bomba (L)
 #define LOG_MSG_LEN 240                    // Longitud máxima de mensajes de log
 
 // Configuración de monitoreo automático de sensores
@@ -185,10 +191,9 @@
 #define EVAP_FAN_MIN_OFF_DEFAULT 30             // Tiempo mínimo apagado (s) - reducido para mayor eficiencia
 #define EVAP_FAN_MAX_ON_DEFAULT 1800            // Tiempo máximo encendido (s)
 
-// Offset de compensación para temperatura del evaporador (SHT31)
+// Offset de compensación para temperatura del evaporador (SHT30)
 #define EVAPORATOR_TEMP_OFFSET 15.0f            // Offset aplicado cuando compresor opera > 1 min (°C)
 #define EVAPORATOR_OFFSET_DELAY 60000UL         // Tiempo mínimo de operación del compresor para aplicar offset (ms, 1 min)
-
 #define CONTROL_SMOOTHING_ALPHA 0.7f           // Factor de suavizado en control
 #define TERMISTOR_SAMPLES 10                   // Muestras para promediar termistor (reducido para mayor velocidad)
 
@@ -198,10 +203,9 @@
 #define CONFIG_ASSEMBLE_TIMEOUT 10000          // Timeout para ensamblaje de config (ms)
 
 // Protección del compresor
-#define COMPRESSOR_PROTECTION_TIME 10000UL     // Tiempo de monitoreo inicial (ms, 10s)
+#define COMPRESSOR_PROTECTION_TIME 120000UL    // Tiempo de monitoreo inicial (ms, 2 min)
 #define COMPRESSOR_MIN_CURRENT 1.7f            // Corriente mínima para considerar arranque exitoso (A)
 #define COMPRESSOR_RETRY_DELAY 60000UL         // Retraso antes de reintentar arranque (ms, 1 min)
-
 #define CONFIG_PORTAL_MAX_TIMEOUT 120000UL     // Máximo tiempo de portal de configuración (ms, 2 minutos)
 
 // Constantes para arrays y contadores

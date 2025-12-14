@@ -16,8 +16,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen>
-    with SingleTickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen> {
   Timer? _debounceTimer;
 
   // Valores nominales por defecto
@@ -37,8 +36,6 @@ class _HomeScreenState extends State<HomeScreen>
   // Control de anomalías detectadas para evitar registros duplicados
   // Map<String, bool> _anomalyActive = {}; // Removido: no se utiliza
   bool _firstLoadDone = false;
-
-  late AnimationController _controller;
 
   // Nivel del tanque real desde ESP32
   double tankLevel = 0.0;
@@ -70,17 +67,12 @@ class _HomeScreenState extends State<HomeScreen>
     print('[HOME DEBUG] initState iniciado');
     _loadSettings(); // Carga los valores nominales almacenados
     _initLatestData(); // Carga los últimos datos guardados
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    );
-    print('[HOME DEBUG] AnimationController creado');
 
     // Función para procesar datos del notifier
     void processNotifierData() {
       try {
         final data = globalNotifier.value;
-        print('[UI DEBUG] Procesando datos del notifier: ${data.keys}');
+        // print('[UI] Datos MQTT recibidos');
 
         // Log específico para energia
         if (data.containsKey('energia')) {
@@ -147,48 +139,18 @@ class _HomeScreenState extends State<HomeScreen>
           _showPumpErrorDialog(reason: reason, message: message);
         }
 
-        // Obtener capacidad del tanque desde configuración
-        final tankCapacity = 20.0; // Capacidad fija de 20 litros
-
-        // Intentar diferentes nombres de clave para el agua almacenada
-        double? aguaReal;
-        if (data['aguaAlmacenada'] != null) {
-          aguaReal = (data['aguaAlmacenada'] as num).toDouble();
-        } else if (data['agua'] != null) {
-          aguaReal = (data['agua'] as num).toDouble();
-        } else if (data['waterStored'] != null) {
-          aguaReal = (data['waterStored'] as num).toDouble();
-        } else if (data['w'] != null) {
-          aguaReal = (data['w'] as num).toDouble();
-        }
-
-        if (aguaReal != null && aguaReal >= 0 && tankCapacity > 0) {
-          // Calcular porcentaje basado en capacidad configurada
-          final porcentaje = (aguaReal / tankCapacity).clamp(0.0, 1.0);
-          if (mounted && tankLevel != porcentaje) {
-            tankLevel = porcentaje;
-            print(
-                '[UI DEBUG] Nivel de tanque actualizado a ${(porcentaje * 100).toStringAsFixed(1)}% (agua: $aguaReal L de $tankCapacity L)');
-            _debouncedSetState();
-          }
-        } else {
-          // Fallback: usar porcentaje directo del firmware si no hay agua almacenada
-          final waterPercent = data['water_height'];
-          if (waterPercent != null && waterPercent is num) {
-            final percent = waterPercent.toDouble();
-            if (percent >= 0 && percent <= 100) {
-              final porcentaje = (percent / 100.0).clamp(0.0, 1.0);
-              if (mounted && tankLevel != porcentaje) {
-                tankLevel = porcentaje;
-                print(
-                    '[UI DEBUG] Usando porcentaje directo del firmware: ${percent}% (fallback)');
-                _debouncedSetState();
-              }
-            }
-          } else {
-            print(
-                '[UI DEBUG] No se encontró dato de agua almacenada ni porcentaje directo');
-          }
+        // Calcular porcentaje usando volumen de agua en litros y capacidad fija de 20L
+        final agua = data['aguaAlmacenada'] ?? 0.0;
+        const capacidad = 20.0; // Capacidad fija del tanque en litros
+        final porcentaje =
+            capacidad > 0 ? (agua / capacidad).clamp(0.0, 1.0) : 0.0;
+        print(
+            '[DEBUG] Agua recibida: $agua L, Capacidad: $capacidad L, Porcentaje calculado: ${(porcentaje * 100).toStringAsFixed(1)}%');
+        if (mounted && tankLevel != porcentaje) {
+          tankLevel = porcentaje;
+          print(
+              '[UI] Nivel de tanque actualizado a ${(porcentaje * 100).toStringAsFixed(1)}%');
+          setState(() {});
         }
       } catch (e, stackTrace) {
         print('[UI DEBUG] Error procesando datos del notifier: $e');
@@ -215,7 +177,6 @@ class _HomeScreenState extends State<HomeScreen>
 
   @override
   void dispose() {
-    _controller.dispose();
     _debounceTimer?.cancel();
     _pumpErrorSubscription?.cancel();
     super.dispose();
@@ -392,14 +353,8 @@ class _HomeScreenState extends State<HomeScreen>
         '[UI DEBUG] Iniciando toggle del compresor. Estado actual: $compressorState');
     final startTime = DateTime.now();
 
-    // Actualizar estado local optimistamente
-    final newState = compressorState == 1 ? 0 : 1;
-    setState(() {
-      compressorState = newState;
-    });
-
     // Enviar comando opuesto al estado actual
-    final command = newState == 1 ? "ON" : "OFF";
+    final command = compressorState == 1 ? "OFF" : "ON";
     print('[UI DEBUG] Enviando comando: $command');
     try {
       await SingletonMqttService().mqttClientService.publishCommand(command);
@@ -412,10 +367,6 @@ class _HomeScreenState extends State<HomeScreen>
       final duration = endTime.difference(startTime);
       print(
           '[UI DEBUG] Error enviando comando $command después de ${duration.inMilliseconds}ms: $e');
-      // Revertir estado si falla
-      setState(() {
-        compressorState = 1 - newState;
-      });
       // Error ya se maneja en el servicio MQTT, no mostrar SnackBar
     }
   }
@@ -425,13 +376,7 @@ class _HomeScreenState extends State<HomeScreen>
         '[UI DEBUG] Iniciando toggle del ventilador. Estado actual: $ventilatorState');
     final startTime = DateTime.now();
 
-    // Actualizar estado local optimistamente
-    final newState = ventilatorState == 1 ? 0 : 1;
-    setState(() {
-      ventilatorState = newState;
-    });
-
-    final command = newState == 1 ? "ONV" : "OFFV";
+    final command = ventilatorState == 1 ? "OFFV" : "ONV";
     print('[UI DEBUG] Enviando comando: $command');
     try {
       await SingletonMqttService().mqttClientService.publishCommand(command);
@@ -444,10 +389,6 @@ class _HomeScreenState extends State<HomeScreen>
       final duration = endTime.difference(startTime);
       print(
           '[UI DEBUG] Error enviando comando $command después de ${duration.inMilliseconds}ms: $e');
-      // Revertir estado si falla
-      setState(() {
-        ventilatorState = 1 - newState;
-      });
       // Error ya se maneja en el servicio MQTT, no mostrar SnackBar
     }
   }
@@ -456,13 +397,7 @@ class _HomeScreenState extends State<HomeScreen>
     print('[UI DEBUG] Iniciando toggle de la bomba. Estado actual: $pumpState');
     final startTime = DateTime.now();
 
-    // Actualizar estado local optimistamente
-    final newState = pumpState == 1 ? 0 : 1;
-    setState(() {
-      pumpState = newState;
-    });
-
-    final command = newState == 1 ? "ONB" : "OFFB";
+    final command = pumpState == 1 ? "OFFB" : "ONB";
     print('[UI DEBUG] Enviando comando: $command');
     try {
       await SingletonMqttService().mqttClientService.publishCommand(command);
@@ -475,10 +410,6 @@ class _HomeScreenState extends State<HomeScreen>
       final duration = endTime.difference(startTime);
       print(
           '[UI DEBUG] Error enviando comando $command después de ${duration.inMilliseconds}ms: $e');
-      // Revertir estado si falla
-      setState(() {
-        pumpState = 1 - newState;
-      });
       // Error ya se maneja en el servicio MQTT, no mostrar SnackBar
     }
   }
@@ -488,15 +419,8 @@ class _HomeScreenState extends State<HomeScreen>
         '[UI DEBUG] Iniciando toggle del ventilador del compresor. Estado actual: $compressorFanState, Modo: $operationMode');
     final startTime = DateTime.now();
 
-    // Usar estado optimista como los otros botones para mejor UX
-    final newState = compressorFanState == 1 ? 0 : 1;
-    setState(() {
-      compressorFanState = newState;
-    });
-
-    final command = newState == 1 ? "ONCF" : "OFFCF";
-    print(
-        '[UI DEBUG] Enviando comando: $command con estado optimista aplicado');
+    final command = compressorFanState == 1 ? "OFFCF" : "ONCF";
+    print('[UI DEBUG] Enviando comando: $command');
     try {
       await SingletonMqttService().mqttClientService.publishCommand(command);
       final endTime = DateTime.now();
@@ -508,10 +432,6 @@ class _HomeScreenState extends State<HomeScreen>
       final duration = endTime.difference(startTime);
       print(
           '[UI DEBUG] Error enviando comando $command después de ${duration.inMilliseconds}ms: $e');
-      // Revertir estado si falla
-      setState(() {
-        compressorFanState = 1 - newState;
-      });
       // Error ya se maneja en el servicio MQTT, no mostrar SnackBar
     }
   }
@@ -609,13 +529,6 @@ class _HomeScreenState extends State<HomeScreen>
       final colorAccent = Theme.of(context).colorScheme.secondary;
       final colorText = Theme.of(context).colorScheme.onSurface;
       print('[HOME DEBUG] Colores obtenidos del tema');
-
-      // Actualizar animación de la gota usando el tankLevel actualizado en tiempo real
-      try {
-        _controller.value = tankLevel;
-      } catch (e) {
-        print('[HOME DEBUG] Error actualizando animación: $e');
-      }
 
       // Mostrar pantalla de carga solo por un tiempo limitado
       if (!_firstLoadDone) {
@@ -741,7 +654,7 @@ class _HomeScreenState extends State<HomeScreen>
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          '${(this.tankLevel * 100).toStringAsFixed(1)}%',
+                          '${(tankLevel * 100).toStringAsFixed(1)}%',
                           style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,

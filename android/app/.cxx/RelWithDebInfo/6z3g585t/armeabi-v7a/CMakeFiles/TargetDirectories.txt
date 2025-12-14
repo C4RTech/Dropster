@@ -1,2 +1,0 @@
-C:/Users/Usuario/Desktop/dropster/android/app/.cxx/RelWithDebInfo/6z3g585t/armeabi-v7a/CMakeFiles/edit_cache.dir
-C:/Users/Usuario/Desktop/dropster/android/app/.cxx/RelWithDebInfo/6z3g585t/armeabi-v7a/CMakeFiles/rebuild_cache.dir

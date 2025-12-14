@@ -24,8 +24,9 @@ class DropsterAnimatedSymbol extends StatefulWidget {
 }
 
 class _DropsterAnimatedSymbolState extends State<DropsterAnimatedSymbol>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late AnimationController _controller;
+  late AnimationController _fillController;
   late Animation<double> _scaleAnimation;
   late Animation<double> _glowAnimation;
   late Animation<double> _fillAnimation;
@@ -36,6 +37,11 @@ class _DropsterAnimatedSymbolState extends State<DropsterAnimatedSymbol>
     _controller = AnimationController(
       duration: widget.animationDuration,
       vsync: this,
+    );
+
+    _fillController = AnimationController(
+      vsync: this,
+      value: widget.value,
     );
 
     _scaleAnimation = Tween<double>(
@@ -54,35 +60,24 @@ class _DropsterAnimatedSymbolState extends State<DropsterAnimatedSymbol>
       curve: Curves.easeInOut,
     ));
 
-    _fillAnimation = Tween<double>(
-      begin: 0.0,
-      end: widget.value,
-    ).animate(CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeInOut,
-    ));
+    _fillAnimation = _fillController;
 
-    _controller.forward();
+    _controller.forward(); // Anima entrada (escala y glow)
   }
 
   @override
   void didUpdateWidget(DropsterAnimatedSymbol oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.value != widget.value) {
-      _fillAnimation = Tween<double>(
-        begin: _fillAnimation.value,
-        end: widget.value,
-      ).animate(CurvedAnimation(
-        parent: _controller,
-        curve: Curves.easeInOut,
-      ));
-      _controller.forward(from: 0.0);
+      _fillController.animateTo(widget.value,
+          duration: widget.animationDuration, curve: Curves.easeInOut);
     }
   }
 
   @override
   void dispose() {
     _controller.dispose();
+    _fillController.dispose();
     super.dispose();
   }
 
@@ -94,7 +89,7 @@ class _DropsterAnimatedSymbolState extends State<DropsterAnimatedSymbol>
     return GestureDetector(
       onTap: widget.onTap,
       child: AnimatedBuilder(
-        animation: _controller,
+        animation: Listenable.merge([_controller, _fillController]),
         builder: (context, child) {
           return SizedBox(
             width: widget.size,
@@ -110,14 +105,15 @@ class _DropsterAnimatedSymbolState extends State<DropsterAnimatedSymbol>
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: primaryColor.withOpacity(0.3 * _glowAnimation.value),
+                        color: primaryColor
+                            .withOpacity(0.3 * _glowAnimation.value),
                         blurRadius: 20 * _glowAnimation.value,
                         spreadRadius: 5 * _glowAnimation.value,
                       ),
                     ],
                   ),
                 ),
-                
+
                 // Contenedor principal con el símbolo
                 Transform.scale(
                   scale: _scaleAnimation.value,
@@ -145,21 +141,16 @@ class _DropsterAnimatedSymbolState extends State<DropsterAnimatedSymbol>
                             fit: BoxFit.contain,
                           ),
                         ),
-                        
+
                         // Indicador de llenado (línea circular)
                         Positioned.fill(
-                          child: AnimatedBuilder(
-                            animation: _fillAnimation,
-                            builder: (context, child) {
-                              return CustomPaint(
-                                painter: TankLevelPainter(
-                                  fillLevel: _fillAnimation.value,
-                                  primaryColor: primaryColor,
-                                  secondaryColor: secondaryColor,
-                                  strokeWidth: 6.0,
-                                ),
-                              );
-                            },
+                          child: CustomPaint(
+                            painter: TankLevelPainter(
+                              fillLevel: _fillAnimation.value,
+                              primaryColor: primaryColor,
+                              secondaryColor: secondaryColor,
+                              strokeWidth: 6.0,
+                            ),
                           ),
                         ),
                       ],
@@ -231,9 +222,8 @@ class TankLevelPainter extends CustomPainter {
   @override
   bool shouldRepaint(TankLevelPainter oldDelegate) {
     return oldDelegate.fillLevel != fillLevel ||
-           oldDelegate.primaryColor != primaryColor ||
-           oldDelegate.secondaryColor != secondaryColor ||
-           oldDelegate.strokeWidth != strokeWidth;
+        oldDelegate.primaryColor != primaryColor ||
+        oldDelegate.secondaryColor != secondaryColor ||
+        oldDelegate.strokeWidth != strokeWidth;
   }
 }
-
