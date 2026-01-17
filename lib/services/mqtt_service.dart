@@ -647,9 +647,9 @@ class MqttService {
               if (jsonData is Map<String, dynamic> &&
                   jsonData['type'] == 'system_status') {
                 debugPrint(
-                    '[MQTT HEARTBEAT] 💓 Heartbeat recibido del ESP32 - uptime: ${jsonData['uptime']}');
-                // Marcar ESP32 como online
-                SingletonMqttService().esp32ConnectionNotifier.value = true;
+                    '[MQTT HEARTBEAT] 💓 Heartbeat recibido del dispositivo - uptime: ${jsonData['uptime']}');
+                // Marcar dispositivo como online
+                SingletonMqttService().deviceConnectionNotifier.value = true;
               }
             } catch (e) {
               debugPrint('[MQTT DEBUG] Error procesando heartbeat: $e');
@@ -1154,12 +1154,12 @@ class MqttService {
     try {
       // Procesar mensajes de estado del sistema (online/offline)
       if (payload.contains('ONLINE')) {
-        debugPrint('[MQTT SYSTEM] ESP32 reporta estado ONLINE');
-        // Actualizar notifier con estado de conexión del ESP32
-        SingletonMqttService().esp32ConnectionNotifier.value = true;
+        debugPrint('[MQTT SYSTEM] Dispositivo reporta estado ONLINE');
+        // Actualizar notifier con estado de conexión del dispositivo
+        SingletonMqttService().deviceConnectionNotifier.value = true;
       } else if (payload.contains('OFFLINE')) {
-        debugPrint('[MQTT SYSTEM] ESP32 reporta estado OFFLINE');
-        SingletonMqttService().esp32ConnectionNotifier.value = false;
+        debugPrint('[MQTT SYSTEM] Dispositivo reporta estado OFFLINE');
+        SingletonMqttService().deviceConnectionNotifier.value = false;
       }
     } catch (e) {
       debugPrint('[MQTT DEBUG] Error procesando datos de sistema: $e');

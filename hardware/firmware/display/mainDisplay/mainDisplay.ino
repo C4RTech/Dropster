@@ -81,7 +81,7 @@ void touchscreen_read(lv_indev_t * indev, lv_indev_data_t * data) {
      if (!backlightOn) {
        digitalWrite(TFT_BACKLIGHT_PIN, HIGH);
        backlightOn = true;
-       Serial.println("BACKLIGHT:ON");  // Notificar al ESP32
+       Serial.println("BACKLIGHT:ON");  // Notificar al dispositivo
      }
    } else {
      data->state = LV_INDEV_STATE_RELEASED;
@@ -239,7 +239,7 @@ const char* formats[13] = {
     "%.2f °C", "%.2f hPa", "%.2f %%", "%.2f g/m3", "%.2f °C",
     "%.2f °C", "%.2f %%",
     "%.2f °C", "%.2f °C",
-    "%.2f V", "%.2f A", "%.2f W", "%.2f Wh"
+    "%.2f V", "%.2f A", "%.2f W", "%.2f kWh"
 };
 
 void lv_create_main_gui(void) {
@@ -909,7 +909,7 @@ void loop() {
         if (currentTime - lastActivityTime >= (unsigned long)screenTimeoutSec * 1000UL) {
             digitalWrite(TFT_BACKLIGHT_PIN, LOW);
             backlightOn = false;
-            Serial.println("BACKLIGHT:OFF");  // Notificar al ESP32
+            Serial.println("BACKLIGHT:OFF");  // Notificar al dispositivo
         }
     }
 

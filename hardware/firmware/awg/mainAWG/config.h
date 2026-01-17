@@ -6,12 +6,12 @@
 #define MQTT_PORT 1883
 #define MQTT_USER ""
 #define MQTT_PASS ""
-#define MQTT_CLIENT_ID "ESP32_Dropster_AWG"
+#define MQTT_CLIENT_ID "Dropster_AWG"
 
 // Tópicos organizados (deben coincidir con Dropster App)
 #define MQTT_TOPIC_DATA "dropster/data"           // Datos de sensores (JSON, QoS 0)
 #define MQTT_TOPIC_STATUS "dropster/status"       // Estados actuadores + modo (JSON, QoS 1, retained)
-#define MQTT_TOPIC_CONTROL "dropster/control"     // Comandos app → ESP32 (control + configuración)
+#define MQTT_TOPIC_CONTROL "dropster/control"     // Comandos app → dispositivo (control + configuración)
 #define MQTT_TOPIC_ALERTS "dropster/alerts"       // Alertas específicas
 #define MQTT_TOPIC_ERRORS "dropster/errors"       // Mensajes de error
 #define MQTT_TOPIC_SYSTEM "dropster/system"       // Estado general del sistema
@@ -35,9 +35,9 @@
 #define A_MAGNUS 611.2
 
 // Constantes del termistor NTC
-#define BETA 3435.0                    // Coeficiente Beta
+#define BETA 3950.0                    // Coeficiente Beta estándar
 #define NOMINAL_RESISTANCE 10000.0     // 10kΩ a 25°C
-#define NOMINAL_TEMP 246.5            //  (calibrado para 27°C)
+#define NOMINAL_TEMP 298.15            // 25°C estándar
 #define ADC_RESOLUTION 4095            // 12 bits
 #define VREF 3.3                       // Voltaje de referencia
 
@@ -182,8 +182,6 @@
 #define TEMP_MIN_VALID -50.0f                  // Temperatura mínima válida (°C)
 #define TEMP_MAX_VALID 200.0f                  // Temperatura máxima válida (°C)
 #define ABSOLUTE_ZERO -273.15f                 // Cero absoluto para cálculos
-#define COMPRESSOR_FAN_TEMP_ON_OFFSET_DEFAULT 10.0f    // Offset por defecto para encender ventilador (°C)
-#define COMPRESSOR_FAN_TEMP_OFF_OFFSET_DEFAULT 20.0f   // Offset por defecto para apagar ventilador (°C)
 
 // Offsets para control del ventilador del evaporador
 #define EVAP_FAN_TEMP_ON_OFFSET_DEFAULT 1.0f    // Offset para encender ventilador evaporador (°C) - reducido para mayor eficiencia
@@ -192,10 +190,10 @@
 #define EVAP_FAN_MAX_ON_DEFAULT 1800            // Tiempo máximo encendido (s)
 
 // Offset de compensación para temperatura del evaporador (SHT30)
-#define EVAPORATOR_TEMP_OFFSET 15.0f            // Offset aplicado cuando compresor opera > 1 min (°C)
-#define EVAPORATOR_OFFSET_DELAY 60000UL         // Tiempo mínimo de operación del compresor para aplicar offset (ms, 1 min)
+#define EVAPORATOR_TEMP_OFFSET 15.0f           // Offset aplicado cuando compresor opera > 1 min (°C)
+#define EVAPORATOR_OFFSET_DELAY 60000UL        // Tiempo mínimo de operación del compresor para aplicar offset (ms, 1 min)
 #define CONTROL_SMOOTHING_ALPHA 0.7f           // Factor de suavizado en control
-#define TERMISTOR_SAMPLES 10                   // Muestras para promediar termistor (reducido para mayor velocidad)
+#define TERMISTOR_SAMPLES 20                   // Muestras para promediar termistor
 
 // Constantes de timing adicionales
 #define STARTUP_DELAY 1000                     // Delay de inicio (ms)
@@ -203,8 +201,8 @@
 #define CONFIG_ASSEMBLE_TIMEOUT 10000          // Timeout para ensamblaje de config (ms)
 
 // Protección del compresor
-#define COMPRESSOR_PROTECTION_TIME 120000UL    // Tiempo de monitoreo inicial (ms, 2 min)
-#define COMPRESSOR_MIN_CURRENT 1.7f            // Corriente mínima para considerar arranque exitoso (A)
+#define COMPRESSOR_PROTECTION_TIME 30000UL     // Tiempo de monitoreo inicial (ms, 30 segundos)
+#define COMPRESSOR_MIN_CURRENT 1.75f           // Corriente mínima para considerar arranque exitoso (A)
 #define COMPRESSOR_RETRY_DELAY 60000UL         // Retraso antes de reintentar arranque (ms, 1 min)
 #define CONFIG_PORTAL_MAX_TIMEOUT 120000UL     // Máximo tiempo de portal de configuración (ms, 2 minutos)
 

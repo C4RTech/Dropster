@@ -74,19 +74,19 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
     setState(() {});
   }
 
-  /// Verifica si tanto la app como el ESP32 están conectados al broker
+  /// Verifica si tanto la app como el dispositivo están conectados al broker
   bool _isFullyConnected() {
     // La app debe estar conectada al broker
     if (!SingletonMqttService().mqttConnected) {
       return false;
     }
 
-    // El ESP32 debe estar online (según heartbeat o system messages)
-    if (!SingletonMqttService().esp32ConnectionNotifier.value) {
+    // El dispositivo debe estar online (según heartbeat o system messages)
+    if (!SingletonMqttService().deviceConnectionNotifier.value) {
       return false;
     }
 
-    // El ESP32 debe haber enviado datos recientemente (últimos 60 segundos para mayor tolerancia)
+    // El dispositivo debe haber enviado datos recientemente (últimos 60 segundos para mayor tolerancia)
     final stats = SingletonMqttService().mqttClientService.getConnectionStats();
     final lastMessageTime = stats['lastMessageTime'];
     if (lastMessageTime == null) {
@@ -97,7 +97,7 @@ class _ConnectivityScreenState extends State<ConnectivityScreen> {
     final now = DateTime.now();
     final timeSinceLastMessage = now.difference(lastMessage).inSeconds;
 
-    // Consideramos que el ESP32 está conectado si envió datos en los últimos 60 segundos
+    // Consideramos que el dispositivo está conectado si envió datos en los últimos 60 segundos
     return timeSinceLastMessage <= 60;
   }
 

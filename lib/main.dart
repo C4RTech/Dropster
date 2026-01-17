@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:dropster/screens/home_screen.dart';
 import 'package:dropster/screens/connectivity_screen.dart';
 import 'package:dropster/screens/monitor_screen.dart';
-import 'package:dropster/screens/graph_screen.dart';
 import 'package:dropster/screens/settings_screen.dart';
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'services/singleton_mqtt_service.dart';
@@ -336,7 +335,6 @@ class _MainScreenState extends State<MainScreen> {
     HomeScreen(),
     MonitorScreen(),
     ConnectivityScreen(),
-    GraphScreen(),
     SettingsScreen(),
   ];
 
@@ -413,10 +411,6 @@ class _MainScreenState extends State<MainScreen> {
             BottomNavigationBarItem(
               icon: Icon(Icons.wifi),
               label: 'Conectividad',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.show_chart),
-              label: 'Gráficas',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.settings),

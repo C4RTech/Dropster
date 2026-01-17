@@ -159,7 +159,7 @@ class DailyReportDataAnalyzer {
       'maxPower': 950.0 + (random * 20.0),
       'avgTemperature': 25.0 + (random * 0.2),
       'avgHumidity': 65.0 + (random * 0.5),
-      'efficiency': baseEnergy / baseWater,
+      'efficiency': baseWater / baseEnergy,
       'compressorRuntime': 45.0 + (random * 0.3),
       'totalReadings': 0,
       'validReadings': 0,

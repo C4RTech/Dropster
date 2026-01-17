@@ -231,13 +231,6 @@ hardware/
   - Estado de conexión en tiempo real
   - Configuración de almacenamiento de datos
 
-### 3. **Pantalla de Gráficas (GraphScreen)**
-- **Ubicación**: `lib/screens/graph_screen.dart`
-- **Funcionalidad**:
-  - Gráficas de variables de interes (Consumo electrico, Agua generada, Temperatura y  Humedad)
-  - Modo tiempo real e histórico
-  - Filtros por rango de fechas
-  - Control de visualización
 
 ### 4. **Pantalla de Monitoreo (MonitorScreen)**
 - **Ubicación**: `lib/screens/monitor_screen.dart`
@@ -392,11 +385,10 @@ dev_dependencies:
 
 ### 📱 **Navegación**
 
-La aplicación utiliza navegación inferior con 6 secciones principales:
+La aplicación utiliza navegación inferior con 5 secciones principales:
 - **Home**: Datos principales y control del dispositivo Dropster AWG
 - **Monitoreo**: Datos organizados por categorías
 - **Conectividad**: Gestión de conexiones
-- **Gráficas**: Visualización histórica y tiempo real
 - **Configuración**: Ajustes completos del dispositivo Dropster AWG
 - **Info**: Información y ayuda
 

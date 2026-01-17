@@ -101,7 +101,7 @@ class MqttHiveService {
         'voltaje': jsonData['v'] ?? 0.0, // v = voltaje
         'corriente': jsonData['c'] ?? 0.0, // c = corriente
         'potencia': jsonData['po'] ?? 0.0, // po = potencia
-        'energia': jsonData['e'] ?? 0.0, // e = energia en Wh
+        'energia': jsonData['e'] ?? 0.0, // e = energia en kWh
 
         // === ESTADO DEL COMPRESOR ===
         'estadoCompresor':

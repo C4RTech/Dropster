@@ -5,7 +5,6 @@ import 'dart:async';
 import '../services/mqtt_hive.dart';
 import '../services/enhanced_daily_report_service_refactored.dart';
 import '../services/singleton_mqtt_service.dart';
-import 'graph_screen.dart';
 import 'info_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -1087,8 +1086,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       child: Slider(
                         value: maxCompressorTemp,
                         min: 50.0,
-                        max: 150.0,
-                        divisions: 100,
+                        max: 100.0,
+                        divisions: 50,
                         label: '${maxCompressorTemp.toStringAsFixed(0)}°C',
                         onChanged: (value) {
                           setState(() {
@@ -1245,9 +1244,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     child: Slider(
                       value: controlMinOff.toDouble(),
-                      min: 10,
-                      max: 300,
-                      divisions: 58,
+                      min: 240,
+                      max: 600,
+                      divisions: 36,
                       label: '${controlMinOff}s',
                       onChanged: (value) {
                         setState(() {
@@ -1294,8 +1293,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Slider(
                       value: controlMaxOn.toDouble(),
                       min: 300,
-                      max: 7200,
-                      divisions: 69,
+                      max: 5400,
+                      divisions: 51,
                       label:
                           '${controlMaxOn}s (${(controlMaxOn / 60).toStringAsFixed(0)}min)',
                       onChanged: (value) {

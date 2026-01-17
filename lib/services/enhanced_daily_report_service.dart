@@ -249,7 +249,7 @@ class EnhancedDailyReportService {
     // Calcular eficiencia
     double efficiency = 0.0;
     if (maxWater > 0 && maxEnergy > 0) {
-      efficiency = maxEnergy / maxWater;
+      efficiency = maxWater / maxEnergy;
     }
 
     // Calcular tiempo de funcionamiento del compresor
